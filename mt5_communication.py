@@ -1697,27 +1697,38 @@ class MT5Communication:
 
             async def process_request(path, request_headers):
                 """
-                Graceful handler for non-WebSocket hits.
+                🔍 HOTFIX: Graceful handler for non-WebSocket hits.
                 Return None to continue WebSocket handshake.
                 Otherwise return (status, headers, body).
                 """
                 try:
+                    # ✅ HOTFIX: Validar se headers existem
+                    if not request_headers:
+                        log.debug("[HOTFIX] Empty request headers, rejecting")
+                        body = b"Invalid request\n"
+                        return 400, [("Content-Type", "text/plain")], body
+                    
                     upgrade = request_headers.get("Upgrade", "")
                     connection_hdr = request_headers.get("Connection", "")
-                    # consider it a WS handshake only when both headers indicate an upgrade
-                    if isinstance(upgrade, str) and "websocket" in upgrade.lower() and isinstance(connection_hdr, str) and "upgrade" in connection_hdr.lower():
-                        return None
-
-                    # If the client is doing a regular HTTP request (keep-alive etc),
-                    # respond with a small informative body so it doesn't cause a noisy stacktrace.
-                    body = b"MT5 WebSocket endpoint. Use WebSocket handshake or POST to HTTP fallback endpoint.\n"
+                    
+                    # ✅ HOTFIX: WebSocket handshake válido
+                    if (isinstance(upgrade, str) and "websocket" in upgrade.lower() and 
+                        isinstance(connection_hdr, str) and "upgrade" in connection_hdr.lower()):
+                        log.debug("[HOTFIX] Valid WebSocket handshake detected")
+                        return None  # Continue with WS handshake
+                    
+                    # ✅ HOTFIX: HTTP request normal
+                    log.debug("[HOTFIX] Non-WebSocket request, returning HTTP response")
+                    body = b"MT5 WebSocket endpoint. Use WebSocket protocol.\n"
                     headers = [
                         ("Content-Type", "text/plain; charset=utf-8"),
                         ("Content-Length", str(len(body)))
                     ]
                     return 200, headers, body
-                except Exception:
-                    # In case of any unexpected header shapes, avoid raising and return a sane fallback.
+                    
+                except Exception as e:
+                    log.warning(f"[HOTFIX] process_request error: {e}")
+                    # Fallback seguro
                     return 200, [("Content-Type", "text/plain")], b"OK"
 
 
@@ -1731,6 +1742,7 @@ class MT5Communication:
                         ping_interval=globals().get("WS_PING_INTERVAL", None),
                         ping_timeout=globals().get("WS_PING_TIMEOUT", None),
                         max_size=globals().get("WS_MAX_SIZE", None),
+                        open_timeout=5,  # ✅ HOTFIX: Timeout de 5s no handshake
                         process_request=process_request,
                     )
                     self._ws_server = server
@@ -1751,9 +1763,10 @@ class MT5Communication:
                     except Exception as e:
                         log.debug("_ws_main: server close error: %s", e)
 
-                except (_ws_exceptions.InvalidMessage, _ws_exceptions.InvalidUpgrade, ConnectionResetError, EOFError, ValueError) as e:
-                    # Erros esperáveis quando um cliente HTTP normal acerta no porto WS.
-                    log.warning("_ws_main handshake/connection error (suppressed): %s", e)
+                except (_ws_exceptions.InvalidMessage, _ws_exceptions.InvalidUpgrade, 
+                        ConnectionResetError, EOFError, ValueError, AssertionError) as e:
+                    # ✅ HOTFIX: Suprimir erros esperados de handshake
+                    log.debug("_ws_main handshake error (suppressed): %s", str(e)[:100])
                     # garante sinalização para não bloquear quem espera o started_evt
                     if not self._ws_started_evt.is_set():
                         try:
@@ -2266,17 +2279,21 @@ class MT5Communication:
                 # unknown action
                 await websocket.send(json.dumps({"status": "error", "detail": "unknown action"}))
 
-        except websockets.ConnectionClosed:
-            log.info("[WS] Client disconnected %s", client_id)
+        except websockets.ConnectionClosed as e:
+            # ✅ HOTFIX: Graceful disconnect
+            log.debug(f"[HOTFIX] Client {client_id} disconnected: {e.code} {e.reason}")
         except Exception as e:
-            log.exception("[WS] Unexpected exception for %s: %s", client_id, e)
+            log.error(f"[HOTFIX] Unexpected error in _handle_client for {client_id}: {e}")
         finally:
             # cleanup
             try:
                 self._client_last_ts.pop(client_ip, None)
             except Exception:
                 pass
-            log.info("[WS] Connection closed %s", client_id)
+            log.info(f"[WS] Client disconnected {client_id}")
+            # ✅ HOTFIX: Atualizar contador de conexões
+            with self._metrics_lock:
+                self.metrics["ws_connections"] = max(0, self.metrics.get("ws_connections", 1) - 1)
 
 # quick manual run
 if __name__ == "__main__":
