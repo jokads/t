@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JokaMazKiBu Trading Bot - Dashboard Ultra Avançado v5.1</title>
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    
+    <!-- Font Awesome (Ícones) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Google Fonts (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Chart.js (Gráficos) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Canvas para a animação de triângulos -->
+    <canvas id="triangle-canvas"></canvas>
+
+    <div class="dashboard-container">
+        <!-- ========== SIDEBAR ========== -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <img src="/static/img/logo.png" alt="Logo" class="logo-img">
+                    <div class="logo-text">JOKAMAZKIBU</div>
+                    <div class="version">v5.1 Ultra Advanced</div>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <div class="nav-item active" data-section="overview">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Overview</span>
+                        <span class="nav-badge live" id="live-status-badge">LIVE</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="account">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-wallet"></i>
+                        <span>Conta & Saldo</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="positions">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-exchange-alt"></i>
+                        <span>Posições Ativas</span>
+                        <span class="nav-badge count" id="active-positions-count">0</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="signals">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-signal"></i>
+                        <span>Sinais de Trading</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="strategies">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-brain"></i>
+                        <span>Controlo de Estratégias</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="ai-analysis">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-robot"></i>
+                        <span>IA & Análise</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="news">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-newspaper"></i>
+                        <span>Notícias</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="risk">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-shield-alt"></i>
+                        <span>Gestão de Risco</span>
+                    </a>
+                </div>
+                
+                <div class="nav-item" data-section="system-control">
+                    <a href="#" class="nav-link">
+                        <i class="fas fa-cog"></i>
+                        <span>Controlo do Sistema</span>
+                    </a>
+                </div>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <a href="/logout" class="nav-link logout-link">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </aside>
+        
+        <!-- ========== MAIN CONTENT ========== -->
+        <main class="main-content" id="mainContent">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <button class="menu-toggle" id="menuToggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <h1 class="page-title" id="pageTitle">Overview</h1>
+                </div>
+                
+                <div class="header-right">
+                    <div class="status-indicator online" id="mt4Status">
+                        <span class="status-dot"></span>
+                        <span>MT4 Conectado</span>
+                    </div>
+                    
+                    <div class="status-indicator online" id="botStatus">
+                        <span class="status-dot"></span>
+                        <span>BOT ATIVO</span>
+                    </div>
+                    
+                    <div class="user-menu">
+                        <div class="user-avatar">{{ username[0].upper() if username else 'J' }}</div>
+                        <span>{{ username or 'Joka' }}</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Content -->
+            <div class="content">
+                
+                <!-- ========== 1. OVERVIEW SECTION ========== -->
+                <section class="content-section active" id="overview-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-chart-line text-gold"></i>
+                        Visão Geral do Sistema
+                    </h2>
+                    
+                    <!-- Stats Cards -->
+                    <div class="grid grid-4 mb-3">
+                        <div class="card stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-chart-pie"></i>
+                            </div>
+                            <div class="stat-label">Equity Total</div>
+                            <div class="card-value" id="totalEquity">$0.00</div>
+                            <div class="card-change neutral" id="equityChange">
+                                <i class="fas fa-minus"></i>
+                                <span>0.00%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="card stat-card">
+                            <div class="stat-icon" style="background: var(--success-color);">
+                                <i class="fas fa-dollar-sign"></i>
+                            </div>
+                            <div class="stat-label">Profit Flutuante</div>
+                            <div class="card-value" id="floatingProfit">$0.00</div>
+                            <div class="card-change neutral" id="profitChange">
+                                <i class="fas fa-minus"></i>
+                                <span>0.00%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="card stat-card">
+                            <div class="stat-icon" style="background: var(--purple-color);">
+                                <i class="fas fa-percentage"></i>
+                            </div>
+                            <div class="stat-label">Win Rate (Hoje)</div>
+                            <div class="card-value" id="winRateToday">0.0%</div>
+                            <div class="card-change neutral" id="tradesToday">
+                                <i class="fas fa-exchange-alt"></i>
+                                <span>0 trades</span>
+                            </div>
+                        </div>
+                        
+                        <div class="card stat-card">
+                            <div class="stat-icon" style="background: var(--cyan-color);">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="stat-label">Consenso IA</div>
+                            <div class="card-value" id="aiConsensus">HOLD</div>
+                            <div class="card-change neutral" id="aiConfidence">
+                                <i class="fas fa-lightbulb"></i>
+                                <span>0% Confiança</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Charts Row -->
+                    <div class="grid grid-2 mb-3">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-chart-area"></i>
+                                    Evolução do Saldo (Equity)
+                                </div>
+                            </div>
+                            <div style="height: 300px;">
+                                <canvas id="balanceChart"></canvas>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-chart-pie"></i>
+                                    Performance por Estratégia
+                                </div>
+                            </div>
+                            <div style="height: 300px;">
+                                <canvas id="strategyChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Active Positions (Mini Table) -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-exchange-alt"></i>
+                                Posições Ativas (Top 5)
+                            </div>
+                            <button class="btn btn-secondary btn-sm" onclick="dashboard.navigateToSection('positions')">
+                                <i class="fas fa-external-link-alt"></i>
+                                Ver Todas
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ticket</th>
+                                        <th>Par</th>
+                                        <th>Tipo</th>
+                                        <th>Volume</th>
+                                        <th>Preço Abertura</th>
+                                        <th>Preço Atual</th>
+                                        <th>P&L Flutuante</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="overview-positions-body">
+                                    <tr><td colspan="8" class="text-center text-muted">Nenhuma posição ativa.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 2. ACCOUNT SECTION ========== -->
+                <section class="content-section" id="account-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-wallet text-gold"></i>
+                        Detalhes da Conta
+                    </h2>
+                    
+                    <div class="grid grid-3 mb-3">
+                        <div class="card stat-card">
+                            <div class="stat-label">Saldo (Balance)</div>
+                            <div class="card-value" id="account-balance">$0.00</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-label">Capital (Equity)</div>
+                            <div class="card-value" id="account-equity-full">$0.00</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-label">Lucro Diário (P&L)</div>
+                            <div class="card-value" id="daily-profit-full">$0.00</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-label">Margem Usada</div>
+                            <div class="card-value" id="margin-used">$0.00</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-label">Margem Livre</div>
+                            <div class="card-value" id="free-margin">$0.00</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-label">Nível de Margem</div>
+                            <div class="card-value" id="margin-level">0.00%</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-chart-bar"></i>
+                                Estatísticas de Trading
+                            </div>
+                        </div>
+                        <div class="grid grid-4">
+                            <div class="stat-card">
+                                <div class="stat-label">Trades Hoje</div>
+                                <div class="card-value" id="stat-trades-today">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Trades Vencedores</div>
+                                <div class="card-value" id="stat-winners-today">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Taxa de Acerto (Win Rate)</div>
+                                <div class="card-value" id="stat-win-rate">0.0%</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Maior Lucro</div>
+                                <div class="card-value text-success" id="stat-max-profit">$0.00</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 3. POSITIONS SECTION ========== -->
+                <section class="content-section" id="positions-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-exchange-alt text-gold"></i>
+                        Todas as Posições Ativas
+                    </h2>
+                    
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-list"></i>
+                                Lista Completa
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="refresh-positions">
+                                <i class="fas fa-sync-alt"></i>
+                                Atualizar
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ticket</th>
+                                        <th>Par</th>
+                                        <th>Tipo</th>
+                                        <th>Volume</th>
+                                        <th>Preço Abertura</th>
+                                        <th>Preço Atual</th>
+                                        <th>SL</th>
+                                        <th>TP</th>
+                                        <th>P&L Flutuante</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="positions-full-body">
+                                    <tr><td colspan="10" class="text-center text-muted">Nenhuma posição ativa.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 4. SIGNALS SECTION ========== -->
+                <section class="content-section" id="signals-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-signal text-gold"></i>
+                        Sinais de Trading Recentes
+                    </h2>
+                    
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-bullseye"></i>
+                                Sinais Gerados
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="refresh-signals">
+                                <i class="fas fa-sync-alt"></i>
+                                Atualizar
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Hora</th>
+                                        <th>Par</th>
+                                        <th>Direção</th>
+                                        <th>Confiança</th>
+                                        <th>Fonte</th>
+                                        <th>Estratégia</th>
+                                        <th>Status</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="signals-tbody">
+                                    <tr><td colspan="8" class="text-center text-muted">Nenhum sinal recente.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 5. STRATEGIES SECTION ========== -->
+                <section class="content-section" id="strategies-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-brain text-gold"></i>
+                        Controlo de Estratégias
+                    </h2>
+                    
+                    <div class="grid grid-3" id="strategies-list">
+                        <!-- Strategy cards will be rendered here by JS -->
+                        <div class="card strategy-card">
+                            <div class="card-title">EMA CROSSOVER</div>
+                            <p class="text-muted">Performance: 0.0% | Trades: 0</p>
+                            <div class="strategy-status">
+                                <span class="status-dot offline"></span>
+                                <span class="status-text">Inativa</span>
+                            </div>
+                            <button class="btn btn-success btn-toggle" data-strategy="ema_crossover" data-enabled="on">Ativar</button>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 6. AI ANALYSIS SECTION ========== -->
+                <section class="content-section" id="ai-analysis-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-robot text-gold"></i>
+                        Análise e Chat com IAs
+                    </h2>
+                    
+                    <div class="grid grid-2 mb-3">
+                        <!-- AI Consensus -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-lightbulb"></i>
+                                    Consenso de Mercado (Tempo Real)
+                                </div>
+                            </div>
+                            <div id="ai-consensus-display" style="min-height: 300px;">
+                                <p class="text-muted">Aguardando análise periódica das IAs...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- AI Chat -->
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-comments"></i>
+                                    Chat com IA
+                                </div>
+                            </div>
+                            <div class="ai-chat-box" id="ai-chat-box">
+                                <!-- Chat messages will be here -->
+                            </div>
+                            <div class="ai-chat-input">
+                                <select id="ai-model-select" style="width: 150px;">
+                                    <option value="all">Consenso de Todas</option>
+                                    <!-- AI models will be loaded here by JS -->
+                                </select>
+                                <input type="text" id="ai-chat-message" placeholder="Pergunte sobre o mercado ou estratégias..." />
+                                <button class="btn btn-primary" id="send-ai-message">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 7. NEWS SECTION ========== -->
+                <section class="content-section" id="news-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-newspaper text-gold"></i>
+                        Notícias de Mercado
+                    </h2>
+                    
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-globe"></i>
+                                Últimas Notícias (Fonte Externa)
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="refresh-news">
+                                <i class="fas fa-sync-alt"></i>
+                                Atualizar
+                            </button>
+                        </div>
+                        <div class="news-list" id="news-list">
+                            <p class="text-center text-muted">Carregando notícias...</p>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 8. RISK MANAGEMENT SECTION ========== -->
+                <section class="content-section" id="risk-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-shield-alt text-gold"></i>
+                        Gestão de Risco
+                    </h2>
+                    
+                    <div class="grid grid-2 mb-3">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-sliders-h"></i>
+                                    Configurações de Risco
+                                </div>
+                            </div>
+                            <!-- Form de Risco (Simulação) -->
+                            <div class="form-group mb-3">
+                                <label for="risk-per-trade">Risco por Trade (%)</label>
+                                <input type="range" id="risk-per-trade" min="0.1" max="5.0" step="0.1" value="1.0" class="form-range">
+                                <span class="text-gold" id="risk-per-trade-value">1.0%</span>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="max-daily-loss">Perda Máxima Diária ($)</label>
+                                <input type="number" id="max-daily-loss" value="500" class="form-control">
+                            </div>
+                            <button class="btn btn-success">
+                                <i class="fas fa-save"></i>
+                                Salvar Configurações
+                            </button>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">
+                                    <i class="fas fa-chart-line"></i>
+                                    Métricas de Risco
+                                </div>
+                            </div>
+                            <div class="stat-card mb-3">
+                                <div class="stat-label">Drawdown Atual</div>
+                                <div class="card-value text-danger" id="current-drawdown">0.00%</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Risco Exposto Total</div>
+                                <div class="card-value" id="total-risk-exposed">$0.00</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- ========== 9. SYSTEM CONTROL SECTION ========== -->
+                <section class="content-section" id="system-control-section">
+                    <h2 class="section-title mb-3">
+                        <i class="fas fa-cog text-gold"></i>
+                        Controlo e Status do Sistema
+                    </h2>
+                    
+                    <div class="grid grid-3 mb-3">
+                        <div class="card">
+                            <div class="card-title">MT4 Communication</div>
+                            <div class="status-indicator-lg online" id="mt4-control-status">
+                                <span class="status-dot"></span>
+                                <span>Conectado</span>
+                            </div>
+                            <button class="btn btn-info btn-sm" id="mt4-reconnect-btn">
+                                <i class="fas fa-redo"></i>
+                                Tentar Reconexão
+                            </button>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-title">Trading Bot Core</div>
+                            <div class="status-indicator-lg online" id="bot-control-status">
+                                <span class="status-dot"></span>
+                                <span>Ativo</span>
+                            </div>
+                            <button class="btn btn-warning btn-sm" id="bot-toggle-btn" data-state="off">
+                                <i class="fas fa-pause"></i>
+                                Pausar Bot
+                            </button>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-title">News API Manager</div>
+                            <div class="status-indicator-lg online" id="news-control-status">
+                                <span class="status-dot"></span>
+                                <span>Conectado</span>
+                            </div>
+                            <button class="btn btn-info btn-sm" id="news-reconnect-btn">
+                                <i class="fas fa-redo"></i>
+                                Tentar Reconexão
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- System Logs -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="fas fa-terminal"></i>
+                                Logs do Servidor
+                            </div>
+                        </div>
+                        <pre class="log-output" id="system-logs">
+[00:00:00] INFO: Servidor iniciado.
+[00:00:00] INFO: Aguardando conexão SocketIO...
+                        </pre>
+                    </div>
+                </section>
+                
+            </div>
+            
+            <!-- Footer -->
+            <footer class="footer">
+                JokaMazKiBu Trading Bot v5.1 Ultra Advanced | Desenvolvido por Manus AI | &copy; 2025
+            </footer>
+        </main>
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

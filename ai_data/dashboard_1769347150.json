@@ -1,0 +1,32 @@
+{
+  "metrics": {
+    "total_signals": 1,
+    "buy_signals": 1,
+    "sell_signals": 0,
+    "avg_confidence": 1.0,
+    "cache_hit_rate": 0.0,
+    "avg_processing_time": 0.0,
+    "memory_usage_mb": 12977.2421875,
+    "cpu_usage_percent": 0.0,
+    "last_signal_time": 1769347150.4454243,
+    "models_active": 0,
+    "uptime_seconds": 0.014542579650878906
+  },
+  "recent_signals": [
+    {
+      "symbol": "EURUSD",
+      "signal": {
+        "decision": "BUY",
+        "confidence": 1.0,
+        "tp_pips": 50.0,
+        "sl_pips": 30.0,
+        "reasoning": "",
+        "model_name": "",
+        "timestamp": 1769347150.4404058,
+        "models_voted": 3
+      },
+      "timestamp": 1769347150.4454243
+    }
+  ],
+  "timestamp": 1769347150.4484308
+}

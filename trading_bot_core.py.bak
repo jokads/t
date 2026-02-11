@@ -1,0 +1,2123 @@
+# trading_bot_core_with_strategies.py — HARDCORE / PRODUCTION (improved)
+from __future__ import annotations
+
+import os
+import sys
+import time
+import collections
+import signal
+import json
+import logging
+import csv
+# dashboard_server.py
+import threading
+from flask import Flask
+import math
+import numpy as np
+import importlib.util
+from logging.handlers import RotatingFileHandler
+from dotenv import load_dotenv
+from threading import Lock, Event
+from typing import Dict, Optional, Tuple, Any, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from collections import deque
+
+
+BOT_BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BOT_BASE_PATH)
+BASE_DIR = BOT_BASE_PATH
+MAX_SIGNAL_BUFFER = 50  # valor default se não definido no env
+
+# --------------------------- TRADING BOT -------------------------
+import os
+import logging
+from threading import Lock, Event
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Tuple, Optional
+
+from mt5_communication import MT5Communication
+from ai_manager import AIManager
+from strategies.risk_manager import RiskManager
+from strategies.strategy_engine import StrategyEngine
+from strategies.deep_q_learning import StrategyDataCollector, BacktestEngine, MultiIAAdaptiveTrainer, OnlineLearningScheduler, ReplayBuffer, RunningNormalizer,  DQNAgent, TradingEnv
+from strategies.core_models import TradeDirection
+from strategies.models import TradeSignal
+from logging.handlers import TimedRotatingFileHandler
+
+from strategies.models import TradeDirection
+
+def _sanitize_dqn_output(raw_out) -> TradeDirection:
+    """
+    Aceita: 'BUY'/'SELL' strings, TradeDirection enum, int codes, ou tuplas como ('SELL', ...)
+    Retorna: TradeDirection enum (BUY/SELL/HOLD)
+    """
+    try:
+        primary = raw_out[0] if isinstance(raw_out, (tuple, list)) else raw_out
+
+        if isinstance(primary, str):
+            p = primary.strip().upper()
+            if p in ("BUY", "LONG"): return TradeDirection.BUY
+            if p in ("SELL", "SHORT"): return TradeDirection.SELL
+            if p in ("HOLD", "NONE"): return TradeDirection.HOLD
+
+        if isinstance(primary, TradeDirection): return primary
+
+        if isinstance(primary, int):
+            if primary == 1: return TradeDirection.BUY
+            if primary == 2: return TradeDirection.SELL
+            return TradeDirection.HOLD
+    except Exception:
+        pass
+
+    return TradeDirection.HOLD
+
+# --------------------------- BOOTSTRAP ---------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
+load_dotenv()
+
+# --------------------------- LOGGER ------------------------------
+# --------------------------- LOGGER CONFIG ---------------------------
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logger = logging.getLogger("TradingBot")
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+logger.propagate = False
+
+# Evita múltiplos handlers duplicados
+if not logger.handlers:
+    # Formatter padrão
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+
+    # Diretório de logs
+    log_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file_path = os.path.join(log_dir, "trading_bot.log")
+
+    # --------------------------- File Handler ---------------------------
+    try:
+        # TimedRotatingFileHandler é mais seguro no Windows
+        fh = TimedRotatingFileHandler(
+            log_file_path,
+            when="midnight",   # rotaciona diariamente
+            interval=1,
+            backupCount=7,     # mantém 7 dias de logs
+            encoding="utf-8",
+            delay=True
+        )
+        fh.setFormatter(fmt)
+        fh.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+        logger.addHandler(fh)
+    except Exception as e:
+        print(f"⚠️ Falha ao criar FileHandler: {e}", file=sys.stderr)
+
+    # --------------------------- Stream Handler ---------------------------
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    ch.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    logger.addHandler(ch)
+
+logger.info("✅ Logger TradingBot inicializado com sucesso")
+
+# --------------------------- CONFIG ------------------------------
+LLAMA_MODEL_PATH = os.getenv("LLAMA_MODEL_PATH") or os.getenv("MODEL_PATH")
+SYMBOLS = [s.strip() for s in os.getenv("TRADE_SYMBOLS", "EURUSD").split(",") if s.strip()]
+if not SYMBOLS:
+    SYMBOLS = ["EURUSD"]
+
+VOLUME = float(os.getenv("TRADE_VOLUME", "0.01"))
+MIN_VOLUME = float(os.getenv("MIN_VOLUME", "0.01"))
+MAX_VOLUME = float(os.getenv("MAX_VOLUME", "1.0"))
+
+LOOP_INTERVAL = float(os.getenv("LOOP_INTERVAL", "1.0"))
+MIN_TRADE_INTERVAL = float(os.getenv("MIN_TRADE_INTERVAL", "30"))
+
+AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "10"))
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("1", "true", "yes")
+
+MAX_CONCURRENT_TRADES = int(os.getenv("MAX_CONCURRENT_TRADES", "5"))
+MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.55"))
+
+TRADE_HISTORY_CSV = os.path.join(BASE_DIR, os.getenv("TRADE_HISTORY_CSV", "trade_history.csv"))
+STRATEGIES_DIR = os.getenv("STRATEGIES_DIR") or os.path.join(BASE_DIR, "strategies")
+
+# signal buffer limits
+MAX_SIGNAL_BUFFER = int(os.getenv("MAX_SIGNAL_BUFFER", "400"))
+SIGNAL_PROCESS_BATCH = int(os.getenv("SIGNAL_PROCESS_BATCH", "6"))
+
+# --------------------------- UTIL --------------------------------
+def _safe_float(val, default=0.0) -> float:
+    try:
+        if val is None:
+            return default
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def _ensure_csv_headers(path: str, headers: list):
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        with open(path, 'w', newline='', encoding='utf-8') as f:
+            w = csv.writer(f)
+            w.writerow(headers)
+
+
+def sanitize_for_json(obj):
+    """Tenta transformar objeto em JSON-safe para logging (strip big objects)."""
+    try:
+        return json.loads(json.dumps(obj, default=str, ensure_ascii=False))
+    except Exception:
+        try:
+            return str(obj)
+        except Exception:
+            return "<unserializable>"
+
+# --------------------------- STRATEGY LOADER ----------------------
+def import_module_from_path(path: str, module_name: Optional[str] = None):
+    import importlib.util
+    import sys
+    import os
+    module_name = module_name or f"strategy_{os.path.splitext(os.path.basename(path))[0]}"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load spec from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def discover_strategies(strategies_dir: str) -> List[Any]:
+    out = []
+    if not os.path.isdir(strategies_dir):
+        logger.warning("Strategies dir not found: %s", strategies_dir)
+        return out
+    for fn in os.listdir(strategies_dir):
+        if not fn.endswith('.py'):
+            continue
+        path = os.path.join(strategies_dir, fn)
+        try:
+            mod = import_module_from_path(path)
+        except Exception as e:
+            logger.exception("Failed importing strategy module %s: %s", fn, e)
+            continue
+        candidates = []
+        for attr_name in dir(mod):
+            try:
+                obj = getattr(mod, attr_name)
+            except Exception:
+                continue
+            if isinstance(obj, type):
+                if attr_name.lower().endswith('strategy') or attr_name.lower().endswith('agent') or attr_name.lower().endswith('engine'):
+                    candidates.append((attr_name, obj))
+                else:
+                    try:
+                        from strategies.base_strategy import BaseStrategy as ProjectBase
+                    except Exception:
+                        ProjectBase = None
+                    if ProjectBase is not None and isinstance(obj, type) and issubclass(obj, ProjectBase):
+                        candidates.append((attr_name, obj))
+        name = os.path.splitext(fn)[0]
+        if not candidates:
+            for guess in (name.capitalize(), ''.join([p.capitalize() for p in name.split('_')]) + 'Strategy', 'Strategy'):
+                if hasattr(mod, guess):
+                    obj = getattr(mod, guess)
+                    if isinstance(obj, type):
+                        candidates.append((guess, obj))
+        for cname, cls in candidates:
+            out.append({"name": cname, "module": mod, "class": cls, "path": path})
+    return out
+
+
+class TradingBot:
+    def __init__(self):
+        # ---------- Estado inicial ----------
+        self.state = {
+            'status': 'STOPPED',
+            'balance': 0.0,
+            'equity': 0.0,
+            'positions': [],
+            'last_signal': None,
+            'last_update': None
+        }
+
+        # ---------- Logger (usa o global do bootstrap) ----------
+        try:
+            from __main__ import logger as global_logger
+            self.logger = global_logger
+        except ImportError:
+            # fallback caso o logger global não esteja disponível
+            self.logger = logging.getLogger("TradingBot")
+            self.logger.setLevel(logging.INFO)
+            if not self.logger.handlers:
+                ch = logging.StreamHandler(sys.stdout)
+                ch.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+                self.logger.addHandler(ch)
+
+        self.logger.info("Inicializando TradingBot (robusto)...")
+
+        # ---------- Concurrency primitives ----------
+        self._lock = Lock()
+        self._running = Event()
+        self._running.set()
+        self.force_send = False
+
+        # ---------- Executors para AI e estratégias ----------
+        self._strat_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TRADES)
+        self._ai_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TRADES)
+
+        # ---------- Concurrency Primitives ----------
+        self._trade_lock = Lock()
+        self._csv_lock = Lock()
+        try:
+            max_sig = int(os.getenv("MAX_SIGNAL_BUFFER", str(MAX_SIGNAL_BUFFER)))
+        except Exception:
+            max_sig = MAX_SIGNAL_BUFFER
+        self._signal_buffer = deque(maxlen=max_sig)
+        self._signal_lock = Lock()
+        self._running = Event()
+        self._running.set()
+        # máximo de threads para rodar estratégias paralelas
+        self._strat_executor = ThreadPoolExecutor(max_workers=int(os.getenv("MAX_STRAT_THREADS", "4")))
+        
+        self._ai_executor = ThreadPoolExecutor(max_workers=4) 
+
+        # ---------- Core Components (injetáveis) ----------
+        self.mt5: Optional[Any] = None
+        self.ai: Optional[Any] = None
+        self.risk_manager: Optional[Any] = None
+        self.strategy_engine: Optional[Any] = None
+        self.deep_q_agent: Optional[Any] = None
+        self.deep_q_strategy: Optional[Any] = None
+
+        # ---------- Estratégias / estado ----------
+        self.strategies: List[Any] = []
+        self.strategy_defs: List[Dict[str, Any]] = []
+        self._strategies_loaded = False
+
+    # ---------- Métodos de estado para dashboard ----------
+    def update_state(self):
+        """Atualiza estado interno do bot"""
+        try:
+            self.state['balance'] = self.get_balance()  # método seu existente
+            self.state['equity'] = self.get_equity()
+            self.state['positions'] = self.get_positions()
+        except Exception as e:
+            self.logger.warning("Falha ao atualizar estado: %s", e)
+        self.state['last_update'] = datetime.utcnow().isoformat()
+
+    def save_state(self):
+        """Salva estado em arquivo JSON para o dashboard"""
+        try:
+            state_file = os.path.join(BOT_BASE_PATH, 'bot_state.json')
+            with open(state_file, 'w') as f:
+                json.dump(self.state, f, indent=2)
+        except Exception as e:
+            self.logger.warning("Falha ao salvar bot_state.json: %s", e)
+
+    def load_state(self):
+        """Carrega estado salvo"""
+        try:
+            state_file = os.path.join(BOT_BASE_PATH, 'bot_state.json')
+            if os.path.exists(state_file):
+                with open(state_file, 'r') as f:
+                    self.state = json.load(f)
+        except Exception as e:
+            self.logger.warning("Falha ao carregar bot_state.json: %s", e)
+
+        # ---------- Executors (safe limits) ----------
+        def _safe_int_env(name: str, default: int) -> int:
+            try:
+                v = int(os.getenv(name, str(default)))
+                return max(1, v)
+            except Exception:
+                return default
+
+        ai_workers = _safe_int_env("AI_WORKERS", 2)
+        strat_workers = _safe_int_env("STRAT_WORKERS", 4)
+        max_allowed = int(os.getenv("MAX_EXECUTOR_WORKERS", "32"))
+        ai_workers = min(ai_workers, max_allowed)
+        strat_workers = min(strat_workers, max_allowed)
+
+        try:
+            self._ai_executor = ThreadPoolExecutor(max_workers=ai_workers)
+        except Exception:
+            self._ai_executor = ThreadPoolExecutor(max_workers=2)
+        try:
+            self._strat_executor = ThreadPoolExecutor(max_workers=strat_workers)
+        except Exception:
+            self._strat_executor = ThreadPoolExecutor(max_workers=4)
+
+        # ---------- CSV History (garante headers) ----------
+        try:
+            # garante que diretório exista
+            path_dir = os.path.dirname(TRADE_HISTORY_CSV) or BASE_DIR
+            os.makedirs(path_dir, exist_ok=True)
+        except Exception:
+            pass
+        try:
+            self._ensure_csv_headers(TRADE_HISTORY_CSV, ["ts", "symbol", "decision", "volume", "tp_pips", "sl_pips", "conf", "result"])
+        except Exception:
+            self.logger.debug("Falha ao criar/garantir CSV headers", exc_info=True)
+
+        # ---------- Parâmetros globais (defensivos) ----------
+        try:
+            self.min_trade_interval = float(os.getenv("MIN_TRADE_INTERVAL", str(MIN_TRADE_INTERVAL)))
+        except Exception:
+            self.min_trade_interval = MIN_TRADE_INTERVAL
+        try:
+            self.min_confidence = float(os.getenv("MIN_CONFIDENCE", str(MIN_CONFIDENCE)))
+        except Exception:
+            self.min_confidence = MIN_CONFIDENCE
+        try:
+            self.max_concurrent_trades = int(os.getenv("MAX_CONCURRENT_TRADES", str(MAX_CONCURRENT_TRADES)))
+        except Exception:
+            self.max_concurrent_trades = MAX_CONCURRENT_TRADES
+
+        try:
+            # Support legacy DRY_RUN env or bool-like strings
+            dr = os.getenv("DRY_RUN", "false").strip().lower()
+            self.dry_run = dr in ("1", "true", "yes", "y") or (dr == "on")
+        except Exception:
+            self.dry_run = DRY_RUN
+
+        # ---------- runtime flags for signal handling ----------
+        try:
+            self.force_send = os.getenv("FORCE_SEND", "0").lower() in ("1", "true", "yes")
+        except Exception:
+            self.force_send = False
+        try:
+            self.ai_sync_timeout = float(os.getenv("AI_SYNC_TIMEOUT", "2.0"))
+        except Exception:
+            self.ai_sync_timeout = 2.0
+        try:
+            self.ai_conf_margin = float(os.getenv("AI_CONF_MARGIN", "0.07"))
+        except Exception:
+            self.ai_conf_margin = 0.07
+        try:
+            self.default_lot = float(os.getenv("DEFAULT_LOT", str(VOLUME)))
+        except Exception:
+            self.default_lot = VOLUME
+
+        # ---------- Placeholders / wiring will be done after components init ----------
+        # Note: don't try to access self.mt5.strategy_engine/ai_manager here because mt5 may not exist yet.
+
+        # ---------- Inicialização de AI (tenta com resiliência) ----------
+        try:
+            # usa função local que trata logs internamente
+            self.init_ai()
+            self.logger.info("AIManager inicializado com sucesso (ou None se falha silenciosa).")
+        except Exception as e:
+            # usa self.logger (definido acima)
+            self.logger.exception("Falha ao inicializar AIManager — continuando sem IA: %s", e)
+            self.ai = None
+
+        # ---------- Inicialização de MT5Communication (não obrigatória) ----------
+        # Não ligar automaticamente se a intenção for injetar mt5 depois; só tenta se ENV pedir
+        try:
+            auto_init_mt5 = os.getenv("AUTO_INIT_MT5", "0").lower() in ("1", "true", "yes")
+        except Exception:
+            auto_init_mt5 = False
+
+        if auto_init_mt5:
+            try:
+                # init_mt5 fará logging próprio
+                self.init_mt5()
+            except Exception as e:
+                self.logger.warning("init_mt5 falhou (continuando): %s", e)
+
+        # ---------- Inicialização do StrategyEngine (tenta mas não quebra) ----------
+        try:
+            self.strategy_engine = StrategyEngine(strategies=self.strategies, ai_manager=self.ai)
+            self.logger.info("StrategyEngine pronto.")
+        except Exception as e:
+            self.logger.warning("Falha ao inicializar StrategyEngine: %s", e)
+            self.strategy_engine = None
+
+        # ---------- Inicialização do Deep Q Agent (opcional / defensivo) ----------
+        try:
+            self.init_deep_q_agent(retry=5)  # tenta 5 vezes até MT5 estar pronto
+        except Exception as e:
+            self.logger.debug("Deep Q init falhou (ignored): %s", e, exc_info=True)
+            self.deep_q_agent = None
+
+        # ---------- Final summary ----------
+        try:
+            self.logger.info(
+                "TradingBot inicializado | AI=%s | RiskManager=%s | StrategyEngine=%s | DeepQ=%s | DRY_RUN=%s",
+                "ON" if self.ai else "OFF",
+                "ON" if self.risk_manager else "OFF",
+                "ON" if self.strategy_engine else "OFF",
+                "ON" if (self.deep_q_agent or self.deep_q_strategy) else "OFF",
+                bool(self.dry_run),
+            )
+        except Exception:
+            # fallback minimal message
+            self.logger.info("TradingBot iniciado (status resumido indisponível).")
+
+    # ---------- Métodos utilitários ----------
+    def _ensure_csv_headers(self, path: str, headers: List[str]):
+        import os, csv
+        if not os.path.exists(path):
+            with open(path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+            self.logger.info(f"CSV criado com headers: {headers}")
+
+    # ---------- init helpers ----------
+    def init_mt5(self, backoff: float = 5.0, max_attempts: int = 5) -> MT5Communication:
+        attempt = 0
+        start_port = int(os.getenv("MT5_SOCKET_PORT", "9090"))
+        host = os.getenv("MT5_SOCKET_HOST", "127.0.0.1")
+        while attempt < max_attempts and self._running.is_set():
+            attempt += 1
+            try:
+                # pass ai manager so MT5Communication can evaluate signals if needed
+                mt5_comm = MT5Communication(host=host, port=start_port, ai_manager=self.ai)
+                info = mt5_comm.get_account_info()
+                login = info.get('login') if isinstance(info, dict) else getattr(info, 'login', '?')
+                balance = info.get('balance') if isinstance(info, dict) else getattr(info, 'balance', '?')
+                logger.info(f"MT5 connected | Account={login} | Balance={balance}")
+                self.mt5 = mt5_comm
+                return mt5_comm
+            except Exception as e:
+                logger.exception(f"Failed to connect MT5 (attempt {attempt}), retry in {backoff}s: {e}")
+                time.sleep(backoff)
+                backoff = min(backoff * 1.5, 60)
+        raise RuntimeError("Unable to initialize MT5")
+
+    def init_ai(self, backoff: float = 3.0, max_attempts: int = 2) -> Optional[AIManager]:
+        if getattr(self, "ai", None) is not None:
+            self.logger.warning("AIManager already initialized — reusing instance")
+            return self.ai
+
+        attempt = 0
+        while attempt < max_attempts and self._running.is_set():
+            attempt += 1
+            try:
+                ai = AIManager(
+                    mode="LIVE",
+                    enable_llama=True,
+                    max_total_timeout=float(os.getenv("AI_TIMEOUT", AI_TIMEOUT)),
+                    max_models=int(os.getenv("AI_MAX_MODELS", "1")),
+                    n_threads=int(os.getenv("AI_THREADS", "2")),
+                    n_ctx=int(os.getenv("AI_N_CTX", "256")),
+                )
+                self.logger.info(f"AIManager initialized | mode={getattr(ai,'mode','unknown')} | timeout={getattr(ai,'max_total_timeout', getattr(ai,'model_timeout', 'unknown'))}s")
+                self.ai = ai
+                return ai
+            except Exception as e:
+                self.logger.exception(f"Failed to initialize AIManager (attempt {attempt}): {e}")
+                if attempt < max_attempts:
+                    time.sleep(min(backoff, 10))
+                    backoff *= 1.5
+
+        self.logger.critical("AIManager unavailable after attempts — continuing WITHOUT AI")
+        self.ai = None
+        return None
+
+    # ---------- strategies management ----------
+    def load_strategies(self, strategies_dir: Optional[str] = None):
+        strategies_dir = strategies_dir or STRATEGIES_DIR
+        logger.info("Discovering strategies in %s", strategies_dir)
+        defs = discover_strategies(strategies_dir)
+        self.strategy_defs = defs
+        instances = []
+
+        for d in defs:
+            name = d.get('name', '<unknown>')
+            path = d.get('path', '<unknown>')
+            try:
+                cls = d.get('class')
+                if not isinstance(cls, type):
+                    logger.warning("Skipping strategy %s: 'class' is not a type", name)
+                    continue
+                inst = None
+                try:
+                    inst = cls()
+                except TypeError:
+                    fallback_errors = []
+                    try:
+                        inst = cls(symbol=SYMBOLS[0])
+                    except Exception as e:
+                        fallback_errors.append(f"symbol= failed: {e}")
+                    if inst is None:
+                        try:
+                            inst = cls(symbol=SYMBOLS[0], timeframe=int(os.getenv('DEFAULT_TIMEFRAME', '15')))
+                        except Exception as e:
+                            fallback_errors.append(f"symbol+timeframe= failed: {e}")
+                    if inst is None:
+                        try:
+                            inst = cls(SYMBOLS[0])
+                        except Exception as e:
+                            fallback_errors.append(f"positional(symbol) failed: {e}")
+                    if inst is None:
+                        logger.debug("Strategy %s instantiation fallbacks failed: %s", name, "; ".join(fallback_errors))
+                except Exception as e:
+                    logger.exception("Strategy %s instantiation unexpected error: %s", name, e)
+                    inst = None
+
+                if inst is not None:
+                    instances.append({'def': d, 'instance': inst})
+                    logger.info("Loaded strategy %s from %s", name, path)
+                else:
+                    logger.warning("Skipping strategy %s (could not instantiate)", name)
+            except Exception as e:
+                logger.exception("Failed processing strategy definition %s (%s): %s", name, path, e)
+
+        # deep q explicit
+        dq_path = os.path.join(strategies_dir, 'deep_q_learning.py')
+        try:
+            if os.path.exists(dq_path):
+                mod = import_module_from_path(dq_path)
+                if hasattr(mod, 'DeepQLearningStrategy'):
+                    try:
+                        dq = getattr(mod, 'DeepQLearningStrategy')()
+                        self.deep_q_strategy = dq
+                        logger.info('Loaded DeepQLearningStrategy')
+                    except Exception as e:
+                        logger.exception('Failed to instantiate DeepQLearningStrategy: %s', e)
+        except Exception:
+            logger.debug("Deep Q load check failed", exc_info=True)
+
+        self.strategies = [x['instance'] for x in instances if 'instance' in x and x['instance'] is not None]
+        self._strategies_loaded = True
+        return self.strategies
+
+    # ---------- parse helpers ----------
+    def _parse_response_full(self, text: str):
+        """
+        Parser ultra-robusto de resposta de IA.
+        Extrai: decision (BUY/SELL/HOLD), confidence [0..1], tp_pips, sl_pips
+        Nunca lança exceção. Nunca retorna TP/SL <= 0.
+        """
+
+        import json
+        import re
+
+        # ================= CONFIG PADRÃO =================
+        DEFAULT_DECISION = "HOLD"
+        DEFAULT_CONFIDENCE = 0.5
+        DEFAULT_TP = 10.0
+        DEFAULT_SL = 10.0
+
+        # ================= SANITIZA INPUT =================
+        raw = str(text or "").strip()
+        if not raw:
+            return DEFAULT_DECISION, DEFAULT_CONFIDENCE, DEFAULT_TP, DEFAULT_SL
+
+        # normalização base
+        raw_norm = raw.replace(",", ".")
+        raw_up = raw_norm.upper()
+
+        # =================================================
+        # 1️⃣ TENTATIVA: JSON (inclusive JSON “sujo” no meio do texto)
+        # =================================================
+        try:
+            jstart = raw_norm.find("{")
+            jend = raw_norm.rfind("}")
+            if jstart != -1 and jend != -1 and jend > jstart:
+                payload = raw_norm[jstart:jend + 1]
+                data = json.loads(payload)
+
+                def _norm_dec(v):
+                    v = str(v or "").upper()
+                    if v in ("LONG", "BUY", "CALL"):
+                        return "BUY"
+                    if v in ("SHORT", "SELL", "PUT"):
+                        return "SELL"
+                    if v in ("HOLD", "WAIT", "NONE", "NO_TRADE"):
+                        return "HOLD"
+                    return DEFAULT_DECISION
+
+                decision = _norm_dec(
+                    data.get("decision") or
+                    data.get("action") or
+                    data.get("signal")
+                )
+
+                conf_raw = data.get("confidence") or data.get("conf") or data.get("score")
+                confidence = _safe_float(conf_raw, DEFAULT_CONFIDENCE)
+                if confidence > 1.0:
+                    confidence = confidence / 100.0
+                confidence = max(0.0, min(1.0, confidence))
+
+                tp = _safe_float(data.get("tp_pips") or data.get("tp") or data.get("take_profit"), DEFAULT_TP)
+                sl = _safe_float(data.get("sl_pips") or data.get("sl") or data.get("stop_loss"), DEFAULT_SL)
+
+                tp = abs(tp)
+                sl = abs(sl)
+
+                return (
+                    decision,
+                    confidence,
+                    max(1.0, tp),
+                    max(1.0, sl),
+                )
+        except Exception:
+            pass  # cai para regex
+
+        # =================================================
+        # 2️⃣ DECISION via regex textual
+        # =================================================
+        decision = DEFAULT_DECISION
+        if re.search(r"\b(BUY|LONG|CALL)\b", raw_up) and not re.search(r"\b(SELL|SHORT|PUT)\b", raw_up):
+            decision = "BUY"
+        elif re.search(r"\b(SELL|SHORT|PUT)\b", raw_up) and not re.search(r"\b(BUY|LONG|CALL)\b", raw_up):
+            decision = "SELL"
+
+        # =================================================
+        # 3️⃣ CONFIDENCE
+        # =================================================
+        confidence = DEFAULT_CONFIDENCE
+
+        # formato CONF: 0.73
+        m = re.search(r"\bCONF(?:IDENCE)?\s*[:=]\s*([01](?:\.\d+)?|\d{1,3})\b", raw_up)
+        if m:
+            confidence = _safe_float(m.group(1), DEFAULT_CONFIDENCE)
+        else:
+            # formato 72%
+            m = re.search(r"(\d{1,3})\s*%", raw_up)
+            if m:
+                confidence = _safe_float(m.group(1), DEFAULT_CONFIDENCE)
+
+        if confidence > 1.0:
+            confidence /= 100.0
+        confidence = max(0.0, min(1.0, confidence))
+
+        # =================================================
+        # 4️⃣ TP / SL explícitos
+        # =================================================
+        tp = DEFAULT_TP
+        sl = DEFAULT_SL
+
+        m_tp = re.search(r"\bTP(?:_PIPS)?\s*[:=]\s*(-?\d+(?:\.\d+)?)", raw_up)
+        m_sl = re.search(r"\bSL(?:_PIPS)?\s*[:=]\s*(-?\d+(?:\.\d+)?)", raw_up)
+
+        if m_tp:
+            tp = abs(_safe_float(m_tp.group(1), DEFAULT_TP))
+        if m_sl:
+            sl = abs(_safe_float(m_sl.group(1), DEFAULT_SL))
+
+        # =================================================
+        # 5️⃣ FALLBACK NUMÉRICO (último recurso)
+        # =================================================
+        if tp <= 0 or sl <= 0:
+            nums = [
+                abs(float(n)) for n in re.findall(r"\b\d+(?:\.\d+)?\b", raw_norm)
+                if 0.5 <= float(n) <= 10000
+            ]
+            if tp <= 0 and len(nums) >= 1:
+                tp = nums[0]
+            if sl <= 0 and len(nums) >= 2:
+                sl = nums[1]
+
+        # =================================================
+        # 6️⃣ CLAMP FINAL (NUNCA ZERO)
+        # =================================================
+        tp = max(1.0, tp)
+        sl = max(1.0, sl)
+
+        return decision, confidence, tp, sl
+
+
+    # ---------- order sizing ----------
+    def _calculate_volume(self, symbol: str, sl_pips: float) -> float:
+        """
+        Calcula volume de lotes considerando:
+        - Risco percentual da conta (via risk_manager se disponível)
+        - SL em pips
+        - Volatilidade do símbolo
+        - Ajustes de AI ou Deep Q (opcional)
+        - Normaliza volume entre MIN_VOLUME e MAX_VOLUME
+        - Usa step configurável (VOLUME_STEP)
+
+        Retorna: volume em lotes, arredondado
+        """
+
+        import math, os
+
+        DEFAULT_VOLUME = 0.01
+        step = float(os.getenv('VOLUME_STEP', '0.01'))
+        pip_value_est = float(os.getenv('PIP_VALUE_EST', '1.0'))
+
+        # ---------- saldo/equity ----------
+        try:
+            account_info = self.mt5.get_account_info() if self.mt5 else {}
+            if isinstance(account_info, dict):
+                balance = float(account_info.get('balance', account_info.get('equity', 1000.0)))
+            else:
+                balance = float(getattr(account_info, 'balance', getattr(account_info, 'equity', 1000.0)))
+        except Exception:
+            balance = 1000.0
+
+        # ---------- risco base ----------
+        risk_pct = 0.005  # 0.5% padrão
+        try:
+            # se o risk_manager estiver presente, solicita risco customizado
+            if hasattr(self, 'risk_manager') and callable(getattr(self.risk_manager, 'get_risk_pct', None)):
+                risk_pct = self.risk_manager.get_risk_pct(symbol, balance)
+        except Exception as e:
+            self.logger.warning(f"{symbol}: falha ao obter risco via risk_manager, usando padrão: {e}")
+
+        risk_amount = max(1.0, balance * risk_pct)
+
+        # ---------- cálculo do volume ----------
+        if sl_pips and sl_pips > 0:
+            raw_vol = risk_amount / (sl_pips * pip_value_est)
+        else:
+            raw_vol = DEFAULT_VOLUME
+
+        # ---------- ajuste por AI / Deep Q ----------
+        try:
+            if hasattr(self, 'ai') and callable(getattr(self.ai, 'adjust_volume', None)):
+                raw_vol = self.ai.adjust_volume(symbol, raw_vol, sl_pips)
+            elif hasattr(self, 'deep_q_strategy') and callable(getattr(self.deep_q_strategy, 'adjust_volume', None)):
+                raw_vol = self.deep_q_strategy.adjust_volume(symbol, raw_vol, sl_pips)
+        except Exception as e:
+            self.logger.debug(f"{symbol}: falha ao ajustar volume via AI/DeepQ: {e}")
+
+        # ---------- limites máximos por símbolo ----------
+        symbol_max_volume = float(os.getenv(f"{symbol}_MAX_VOLUME", MAX_VOLUME))
+        vol = max(MIN_VOLUME, min(raw_vol, symbol_max_volume))
+
+        # ---------- arredondamento pelo step ----------
+        vol = math.floor(vol / step) * step
+        vol = max(MIN_VOLUME, vol)
+
+        self.logger.debug(
+            "%s | SL=%.2f pips | Balance=%.2f | RiskPct=%.4f | RawVol=%.4f | FinalVol=%.2f",
+            symbol, sl_pips, balance, risk_pct, raw_vol, vol
+        )
+
+        return round(vol, 2)
+    
+    # dentro da classe TradingBot
+    def init_deep_q_agent(self, retry: int = 5):
+        """
+        Inicializa o Deep Q Agent de forma robusta usando o ambiente real de trading.
+        ⚠️ NÃO inicializar antes do MT5 estar pronto.
+        retry: número de tentativas automáticas caso MT5 ainda não esteja conectado
+        """
+        import time
+        import numpy as np
+        attempt = 0
+
+        while attempt < retry:
+            attempt += 1
+            try:
+                # ----------------------------
+                # Verifica MT5
+                # ----------------------------
+                if not getattr(self, "mt5", None) or not self.mt5.is_connected():
+                    self.logger.warning(
+                        "DeepQ não inicializado: MT5 ainda não pronto (tentativa %d/%d)",
+                        attempt,
+                        retry,
+                    )
+                    time.sleep(1.0)
+                    continue
+
+                # ----------------------------
+                # Escolhe símbolo de teste
+                # ----------------------------
+                sample_symbol = getattr(self, "symbols", ["EURUSD"])[0]
+                market_data = self.mt5.get_symbol_data(sample_symbol)
+                account_info = self.mt5.get_account_info()
+
+                # ----------------------------
+                # Importa classes de Deep Q
+                # ----------------------------
+                from strategies.deep_q_learning import TradingEnv, DQNAgent, TradeDirection
+
+                # ----------------------------
+                # Cria ambiente seguro
+                # ----------------------------
+                env = TradingEnv(market_data=market_data, account_info=account_info)
+
+                # ----------------------------
+                # Inferência de state_size/action_size
+                # ----------------------------
+                state_size = 1
+                action_size = 2
+
+                if hasattr(env, "observation_space") and hasattr(env.observation_space, "shape"):
+                    state_size = int(np.prod(env.observation_space.shape))
+                elif hasattr(env, "state_size"):
+                    state_size = int(env.state_size)
+
+                if hasattr(env, "action_space") and hasattr(env.action_space, "n"):
+                    action_size = int(env.action_space.n)
+                elif hasattr(env, "action_size"):
+                    action_size = int(env.action_size)
+
+                # ----------------------------
+                # Inicializa DQNAgent
+                # ----------------------------
+                self.deep_q_agent = DQNAgent(
+                    state_size=state_size,
+                    action_size=action_size,
+                    env=env,
+                    lr=1e-3,
+                    gamma=0.99,
+                    batch_size=64,
+                    buffer_size=20_000,
+                    tau=0.005,
+                    prioritized=True,
+                    symbol=sample_symbol,
+                    timeframe=getattr(self, "timeframe", 15),
+                    # Garantindo mapeamento seguro de TradeDirection
+                    action_map={
+                        0: TradeDirection.SELL,
+                        1: TradeDirection.HOLD,
+                        2: TradeDirection.BUY,
+                    },
+                )
+
+                self.logger.info(
+                    "DeepQ inicializado | state_size=%d | action_size=%d | framework=%s",
+                    self.deep_q_agent.state_size,
+                    self.deep_q_agent.action_size,
+                    getattr(self.deep_q_agent, "framework", "unknown"),
+                )
+                return  # sucesso
+
+            except Exception as e:
+                self.logger.exception(
+                    "Falha ao inicializar DeepQ (tentativa %d/%d): %s", attempt, retry, e
+                )
+                time.sleep(1.0)
+
+        # fallback final
+        self.logger.error("DeepQ Agent não pôde ser inicializado após %d tentativas", retry)
+        self.deep_q_agent = None
+
+
+    def process_and_maybe_send_signal(self, sig_item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recebe item do buffer { 'source':..., 'symbol':..., 'signal': {...} }
+        1) normaliza confiança
+        2) se conf >= self.min_confidence -> envia (execute_trade)
+        3) se conf em (min_conf - margin, min_conf) -> tenta confirmação rápida com AI (sync)
+        4) se FORCE_SEND ligado, envia independente do conf (apenas para testes)
+        Retorna dict com resultado padrão (same shape as execute_trade returns).
+        """
+        try:
+            sym = sig_item.get("symbol")
+            raw = sig_item.get("signal", {})
+            if not sym or not raw:
+                return {"result": "invalid_signal_format"}
+
+            conf = _safe_float(raw.get("confidence", raw.get("conf", 0.0)), 0.0)
+            decision = str(raw.get("decision") or raw.get("action") or "").upper()
+            if decision in ("LONG",): decision = "BUY"
+            if decision in ("SHORT",): decision = "SELL"
+            if decision not in ("BUY", "SELL"):
+                self.logger.debug("Signal ignored (not BUY/SELL): %s", sanitize_for_json(raw))
+                return {"result": "invalid_action"}
+
+            # Quick pass: force send or high-confidence
+            if self.force_send or conf >= self.min_confidence:
+                self.logger.info("Signal accepted immediate (force=%s/conf=%.3f >= min_confidence=%.3f)",
+                                self.force_send, conf, self.min_confidence)
+                ai_like = {
+                    "decision": decision,
+                    "confidence": conf,
+                    "tp_pips": _safe_float(raw.get("tp_pips", raw.get("tp", raw.get("take_profit", 0.0))), 0.0),
+                    "sl_pips": _safe_float(raw.get("sl_pips", raw.get("sl", raw.get("stop_loss", 0.0))), 0.0),
+                    "raw_source": sig_item.get("source", "strategy"),
+                }
+                return self.execute_trade(sym, ai_like)
+
+            # If confidence is slightly below threshold, try synchronous AI confirmation
+            lower_bound = max(0.0, self.min_confidence - self.ai_conf_margin)
+            if lower_bound <= conf < self.min_confidence and self.ai:
+                self.logger.info("%s: low-conf(%.3f) near threshold(%.3f). Trying quick AI confirm (timeout=%.2fs)",
+                                sym, conf, self.min_confidence, self.ai_sync_timeout)
+                try:
+                    fn = getattr(self.ai, "evaluate_signal", None) or getattr(self.ai, "vote_trade", None) or getattr(self.ai, "assess_signal", None)
+                    if callable(fn):
+                        fut = self._ai_executor.submit(lambda: fn({"symbol": sym, **raw}, timeout=self.ai_sync_timeout) if self.ai else None)
+                        res = None
+                        try:
+                            res = fut.result(timeout=self.ai_sync_timeout + 0.5)
+                        except Exception as e:
+                            self.logger.debug("%s: AI quick confirm failed/timeout: %s", sym, e)
+                            res = None
+                        # normalize response dictionary
+                        if isinstance(res, dict):
+                            approved = res.get("approved", None)
+                            new_conf = _safe_float(res.get("confidence", res.get("conf", conf)), conf)
+                            if approved is True or new_conf >= self.min_confidence:
+                                self.logger.info("%s: AI quick-approved (new_conf=%.3f). Sending.", sym, new_conf)
+                                ai_like = {
+                                    "decision": decision,
+                                    "confidence": new_conf,
+                                    "tp_pips": _safe_float(res.get("tp_pips", res.get("tp", raw.get("tp_pips", raw.get("tp", 0.0)))), 0.0),
+                                    "sl_pips": _safe_float(res.get("sl_pips", res.get("sl", raw.get("sl_pips", raw.get("sl", 0.0)))), 0.0),
+                                    "raw_source": sig_item.get("source", "strategy"),
+                                }
+                                return self.execute_trade(sym, ai_like)
+                            else:
+                                self.logger.info("%s: AI quick did not approve (approved=%s new_conf=%.3f). Rejected.", sym, approved, new_conf)
+                        else:
+                            self.logger.debug("%s: AI quick returned non-dict: %s", sym, sanitize_for_json(res))
+                except Exception as e:
+                    self.logger.debug("%s: Exception during AI quick confirm: %s", sym, e)
+
+            # else: reject due to low confidence
+            self.logger.info("%s: signal rejected (confidence %.3f < min %.3f)", sym, conf, self.min_confidence)
+            return {"result": "low_confidence", "confidence": conf}
+
+        except Exception as e:
+            self.logger.exception("process_and_maybe_send_signal failed")
+            return {"result": "error", "error": str(e)}
+
+
+    def execute_trade(self, symbol: str, ai_res: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute trade robusto com:
+        - Strategy decision
+        - AI override (confiança alta)
+        - Deep Q adjustment
+        - Sanitização segura de qualquer output
+        """
+        import time
+        now = time.time()
+
+        # Defaults
+        min_trade_interval = getattr(self, "min_trade_interval", MIN_TRADE_INTERVAL)
+        min_volume = getattr(self, "min_volume", MIN_VOLUME)
+        max_volume = getattr(self, "max_volume", MAX_VOLUME)
+        dry_run = getattr(self, "dry_run", DRY_RUN)
+        force_send = getattr(self, "force_send", False)
+
+        # -----------------------
+        # Extrai decisão strategy + AI
+        # -----------------------
+        strategy_decision = ai_res.get("strategy_decision") or ai_res.get("original_decision") \
+                            or getattr(self, "last_strategy_decision_for_symbol", {}).get(symbol, "HOLD")
+        strategy_decision = str(strategy_decision).strip().upper()
+        if strategy_decision not in ("BUY","SELL"): strategy_decision = "HOLD"
+
+        # AI decision
+        ai_decision_raw = ai_res.get("decision") or ai_res.get("ai_decision")
+        ai_decision = _sanitize_dqn_output(ai_decision_raw)
+
+        # Deep Q output
+        dq_decision_raw = None
+        try:
+            if hasattr(self, "deep_q_strategy") and callable(getattr(self.deep_q_strategy, "predict", None)):
+                dq_decision_raw = self.deep_q_strategy.predict(symbol)
+        except Exception as e:
+            self.logger.debug("%s: Deep Q predict failed: %s", symbol, e)
+
+        dq_decision = _sanitize_dqn_output(dq_decision_raw)
+
+        # -----------------------
+        # Combine Strategy -> AI -> Deep Q
+        # -----------------------
+        decision = strategy_decision
+        ai_conf = _safe_float(ai_res.get("confidence", 0.0), 0.0)
+        ai_min_conf = float(getattr(self, "ai_override_min_confidence", 0.65))
+
+        if ai_decision in (TradeDirection.BUY, TradeDirection.SELL) and ai_conf >= ai_min_conf:
+            decision = ai_decision.value
+            self.logger.info("%s: AI override ACTIVE -> %s (conf=%.2f)", symbol, decision, ai_conf)
+        elif dq_decision in (TradeDirection.BUY, TradeDirection.SELL):
+            decision = dq_decision.value
+            self.logger.info("%s: Deep Q override -> %s", symbol, decision)
+
+        # --- anti-flapping ---
+        last_dec, last_ts = self.state.get(symbol, ("HOLD", 0.0))
+        if decision == last_dec and (now - last_ts) < float(min_trade_interval):
+            return {"ok": False, "result": "min_interval_not_reached"}
+
+        # --- compute volume ---
+        volume = getattr(self, "default_lot", MIN_VOLUME)
+        try:
+            volume = float(self._calculate_volume(symbol))
+            if hasattr(self, "risk_manager"):
+                volume = float(self.risk_manager.adjust_volume(symbol, volume))
+            if hasattr(self, "deep_q_strategy"):
+                volume = float(self.deep_q_strategy.adjust_volume(symbol, volume))
+        except Exception as e:
+            self.logger.debug("%s: volume calculation fallback: %s", symbol, e)
+
+        volume = round(max(min_volume, min(volume, max_volume)), 2)
+
+        # --- dry-run ---
+        if dry_run:
+            self.logger.info("[DRY_RUN] %s %s vol=%.2f", symbol, decision, volume)
+            self.state[symbol] = (decision, now)
+            return {"ok": True, "result": "dry_run", "symbol": symbol, "decision": decision, "volume": volume}
+
+        # --- send trade ---
+        try:
+            send_kwargs = dict(symbol=symbol, side=decision, volume=volume, ask_ai=False, ask_strategies=False, force=force_send)
+            res = self.mt5.place_trade(**send_kwargs)
+            self.state[symbol] = (decision, now)
+            self._log_trade_result(symbol, decision, volume, 0, 0, 0.0, "accepted")
+            return {"ok": True, "result": "accepted", "detail": sanitize_for_json(res)}
+        except Exception as e:
+            self.logger.exception("%s: trade execution failed: %s", symbol, e)
+            return {"ok": False, "result": "error", "error": str(e)}
+        # trading_bot_core.py - when mapping action to TradeDirection
+        def _normalize_direction(x):
+            if x is None: return TradeDirection.HOLD
+            if isinstance(x, str):
+                s = x.strip().upper()
+                if s in ("BUY", "LONG"): return TradeDirection.BUY
+                if s in ("SELL", "SHORT"): return TradeDirection.SELL
+                return TradeDirection.HOLD
+            # if tuple like ('SELL', TradeDirection.HOLD) - handle gracefully
+            if isinstance(x, (list,tuple)) and len(x) >= 1:
+                return _normalize_direction(x[0])
+            # if already TradeDirection
+            try:
+                if isinstance(x, TradeDirection): return x
+            except Exception:
+                pass
+            return TradeDirection.HOLD
+
+        # Use:
+        direction = _normalize_direction(raw_direction_from_strategy)
+
+    def _log_trade_attempt(self, symbol, decision, volume, tp_pips, sl_pips, conf):
+        with self._csv_lock:
+            with open(TRADE_HISTORY_CSV, 'a', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow([int(time.time()), symbol, decision, volume, tp_pips, sl_pips, conf, 'attempt'])
+
+    def _log_trade_result(self, symbol, decision, volume, tp_pips, sl_pips, conf, result):
+        with self._csv_lock:
+            with open(TRADE_HISTORY_CSV, 'a', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow([int(time.time()), symbol, decision, volume, tp_pips, sl_pips, conf, result])
+
+    # ---------- normalize strategy signal ----------
+    def _normalize_strategy_signal(self, sig: Any) -> Optional[Dict[str, Any]]:
+        """
+        Normaliza o sinal da estratégia para formato padrão do bot.
+        Garante que apenas sinais válidos (BUY/SELL) sejam retornados para MT5Communication.
+        """
+        if sig is None:
+            return None
+
+        try:
+            # Se for dict
+            if isinstance(sig, dict):
+                action = str(sig.get('action') or sig.get('decision') or '').upper()
+                if action in ('LONG',):
+                    action = 'BUY'
+                elif action in ('SHORT',):
+                    action = 'SELL'
+
+                if action not in ('BUY', 'SELL'):
+                    # logger.debug(f"Sinal descartado (ação inválida): {sig}")
+                    return None
+
+                conf = _safe_float(sig.get('confidence', sig.get('conf', 0.0)))
+                tp = _safe_float(sig.get('tp', sig.get('tp_pips', sig.get('take_profit', 0.0))))
+                sl = _safe_float(sig.get('sl', sig.get('sl_pips', sig.get('stop_loss', 0.0))))
+
+                return {
+                    'raw': sig,
+                    'decision': action,
+                    'confidence': conf,
+                    'tp_pips': tp,
+                    'sl_pips': sl
+                }
+
+            # Se for objeto com atributos
+            a = getattr(sig, 'action', None) or getattr(sig, 'decision', None)
+            if not a:
+                return None
+            action = str(a).upper()
+            if action in ('LONG',):
+                action = 'BUY'
+            elif action in ('SHORT',):
+                action = 'SELL'
+
+            if action not in ('BUY', 'SELL'):
+                # logger.debug(f"Sinal descartado (ação inválida objeto): {sig}")
+                return None
+
+            conf = _safe_float(getattr(sig, 'confidence', None) or getattr(sig, 'conf', 0.0))
+            tp = _safe_float(getattr(sig, 'tp', None) or getattr(sig, 'tp_pips', 0.0))
+            sl = _safe_float(getattr(sig, 'sl', None) or getattr(sig, 'sl_pips', 0.0))
+
+            return {
+                'raw': sig,
+                'decision': action,
+                'confidence': conf,
+                'tp_pips': tp,
+                'sl_pips': sl
+            }
+
+        except Exception:
+            # logger.exception(f"Erro ao normalizar sinal: {sig}")
+            return None
+
+
+    # ---------- run strategies (parallel) ----------
+    def run_strategies_cycle(self):
+        """
+        Executa todas as strategies carregadas e coleta sinais normalizados.
+        Melhorias:
+        - aceita vários formatos de retorno (tuple, list, dict, single signal)
+        - tolera self._signal_buffer sendo list ou deque
+        - timeout/configurável e tratamento robusto de exceptions por future
+        - logs mais informativos
+        Retorna: número de sinais enfileirados neste ciclo.
+        """
+        import concurrent.futures as cf
+        import os
+        import time
+
+        # timeouts configuráveis
+        try:
+            cycle_timeout = float(os.getenv("STRAT_CYCLE_TIMEOUT", "5.0"))
+        except Exception:
+            cycle_timeout = 5.0
+
+        # garante strategies carregadas
+        if not self._strategies_loaded:
+            try:
+                self.load_strategies()
+            except Exception:
+                self.logger.exception("load_strategies falhou")
+
+        futures = []
+        symbol_data_map = {}
+
+        # Fetch de dados de mercado por símbolo (resiliente)
+        for symbol in SYMBOLS:
+            try:
+                symbol_data_map[symbol] = self.mt5.get_symbol_data(symbol) if self.mt5 else None
+            except Exception as e:
+                self.logger.debug("Falha ao buscar dados para %s: %s", symbol, e)
+                symbol_data_map[symbol] = None
+
+        # Submete chamadas às strategies (cada uma roda em executor já criado)
+        for strat in list(self.strategies or []):
+            try:
+                futures.append(self._strat_executor.submit(self._call_strategy, strat, symbol_data_map))
+            except Exception as e:
+                self.logger.exception("Falha ao submeter strategy %s: %s", getattr(strat, "__class__", type(strat)).__name__, e)
+
+        # Deep Q se existir
+        if getattr(self, "deep_q_strategy", None):
+            try:
+                futures.append(self._strat_executor.submit(self._call_deep_q, self.deep_q_strategy, symbol_data_map))
+            except Exception as e:
+                self.logger.exception("Falha ao submeter deep_q_strategy: %s", e)
+
+        if not futures:
+            self.logger.debug("Nenhuma strategy carregada ou executável")
+            return 0
+
+        # helper: append seguro ao buffer (suporta list e deque)
+        def _append_to_signal_buffer(item: Dict[str, Any]) -> bool:
+            try:
+                with self._signal_lock:
+                    buf = getattr(self, "_signal_buffer", None)
+                    if buf is None:
+                        # inicializa como deque por segurança
+                        from collections import deque
+                        self._signal_buffer = deque(maxlen=MAX_SIGNAL_BUFFER)
+                        buf = self._signal_buffer
+
+                    if len(buf) < MAX_SIGNAL_BUFFER:
+                        # deque and list both have append()
+                        buf.append(item)
+                        return True
+                    else:
+                        return False
+            except Exception as e:
+                self.logger.debug("Erro ao enfileirar sinal: %s", e, exc_info=True)
+                return False
+
+        def _normalize_res_list(res_list):
+            """
+            Aceita vários formatos:
+            - [(sym, sig), ...]
+            - (sym, sig)
+            - {'SYM': sig, ...}
+            - [sig, sig2] where each sig may be tuple/dict
+            - single signal dict
+            Retorna lista de tuples (sym, signal)
+            """
+            out = []
+            try:
+                if res_list is None:
+                    return out
+                # single tuple-like (sym, sig)
+                if isinstance(res_list, (tuple, list)) and len(res_list) == 2 and isinstance(res_list[0], str):
+                    out.append((res_list[0], res_list[1]))
+                    return out
+                # dict mapping symbol->signal
+                if isinstance(res_list, dict):
+                    for k, v in res_list.items():
+                        out.append((k, v))
+                    return out
+                # list of results: could be list of tuples or list of dicts or list of signals
+                if isinstance(res_list, list):
+                    for item in res_list:
+                        if item is None:
+                            continue
+                        if isinstance(item, (tuple, list)) and len(item) >= 2 and isinstance(item[0], str):
+                            out.append((item[0], item[1]))
+                        elif isinstance(item, dict) and set(item.keys()) and all(isinstance(k, str) for k in item.keys()):
+                            # dict likely mapping symbol->signal (or single-signal dict)
+                            # if keys look like symbols, add them; otherwise treat as signal for all SYMBOLS?
+                            # heuristic: if dict has 'decision' or 'confidence' consider it a single signal
+                            if "decision" in item or "confidence" in item or "tp" in item or "tp_pips" in item:
+                                # ambiguous: we don't know symbol -> skip here (caller may handle)
+                                out.append((None, item))
+                            else:
+                                for k, v in item.items():
+                                    out.append((k, v))
+                        else:
+                            # unknown element: skip or wrap
+                            out.append((None, item))
+                    return out
+                # anything else (string, object) -> wrap as single raw
+                out.append((None, res_list))
+            except Exception:
+                self.logger.debug("normalize_res_list crashed for %r", res_list, exc_info=True)
+            return out
+
+        processed_count = 0
+        # process futures (with overall timeout). as_completed raises TimeoutError if not all done in cycle_timeout
+        try:
+            for fut in cf.as_completed(futures, timeout=cycle_timeout):
+                try:
+                    res_list = fut.result()
+                except Exception as e:
+                    # log exception from this future (if any)
+                    try:
+                        exc = fut.exception()
+                    except Exception:
+                        exc = e
+                    self.logger.exception("Falha ao executar strategy future: %s", exc)
+                    continue
+
+                if not res_list:
+                    continue
+
+                pairs = _normalize_res_list(res_list)
+                for sym, nsignal in pairs:
+                    try:
+                        # se strategy retornou sinal sem símbolo, ignorar ou tentar inferir (prefira ignorar)
+                        if not sym:
+                            self.logger.debug("Strategy retornou sinal sem símbolo (ignorando): %s", sanitize_for_json(nsignal))
+                            continue
+
+                        # normaliza nome do símbolo e verifica dados de mercado
+                        sym_norm = str(sym).strip().upper()
+                        if symbol_data_map.get(sym_norm) is None:
+                            # tenta com variante original (case-sensitive)
+                            if symbol_data_map.get(sym) is None:
+                                self.logger.debug("Sem dados de mercado para %s — ignorando sinal", sym)
+                                continue
+                            else:
+                                sym_norm = sym
+
+                        # if signal is None or falsy skip
+                        if not nsignal:
+                            continue
+
+                        item = {"source": "strategy", "symbol": sym_norm, "signal": nsignal}
+
+                        if _append_to_signal_buffer(item):
+                            processed_count += 1
+                        else:
+                            self.logger.warning("Buffer de sinais cheio — descartando novo sinal para %s", sym_norm)
+
+                    except Exception:
+                        self.logger.exception("Erro ao processar item de resultado de strategy")
+
+        except cf.TimeoutError:
+            # some futures didn't finish in time: process the ones that did, cancel rest
+            self.logger.debug("run_strategies_cycle: timeout after %.2fs — processando apenas futures concluídas", cycle_timeout)
+            # process completed futures and try to cancel others
+            for fut in futures:
+                if fut.done():
+                    try:
+                        res_list = fut.result()
+                    except Exception as e:
+                        self.logger.debug("Future done but failed: %s", e)
+                        continue
+                    pairs = _normalize_res_list(res_list)
+                    for sym, nsignal in pairs:
+                        try:
+                            if not sym:
+                                self.logger.debug("Strategy returned unnamed signal (ignoring): %s", sanitize_for_json(nsignal))
+                                continue
+                            sym_norm = str(sym).strip().upper()
+                            if symbol_data_map.get(sym_norm) is None and symbol_data_map.get(sym) is None:
+                                continue
+                            item = {"source": "strategy", "symbol": sym_norm, "signal": nsignal}
+                            if _append_to_signal_buffer(item):
+                                processed_count += 1
+                            else:
+                                self.logger.warning("Buffer full while draining completed futures")
+                        except Exception:
+                            self.logger.exception("Erro ao processar item (timeout branch)")
+                else:
+                    try:
+                        fut.cancel()
+                    except Exception:
+                        pass
+
+        # log resumo
+        try:
+            buf_len = len(getattr(self, "_signal_buffer", []))
+        except Exception:
+            buf_len = -1
+        self.logger.debug("run_strategies_cycle concluído — %d sinais enfileirados neste ciclo | buffer_total=%s", processed_count, buf_len)
+
+        return processed_count
+
+
+    def _call_strategy(self, strat, symbol_data_map: Dict[str, Any]):
+        """
+        Robust strategy caller (PRODUCTION SAFE):
+
+        - aceita function, instance ou class
+        - ignora automaticamente engines / backtests
+        - suporta sync / async
+        - timeout real por chamada
+        - NUNCA quebra o ciclo principal
+        - normaliza sempre para (symbol, normalized_signal)
+        """
+        import inspect
+        import asyncio
+        import concurrent.futures
+        import os
+
+        results: list[tuple[str, dict]] = []
+
+        # -------------------------------
+        # STRATEGY NAME (100% seguro)
+        # -------------------------------
+        strat_name = getattr(strat, "__name__", strat.__class__.__name__)
+
+        # -------------------------------
+        # BLOQUEIO FORTE DE BACKTEST / ENGINES
+        # -------------------------------
+        if (
+            hasattr(strat, "strategies")
+            or hasattr(strat, "run_backtest")
+            or strat_name.lower().startswith(("backtest", "engine"))
+        ):
+            self.logger.debug("Skipping non-live strategy: %s", strat_name)
+            return results
+
+        # -------------------------------
+        # TIMEOUT
+        # -------------------------------
+        try:
+            timeout = float(
+                getattr(self, "strategy_call_timeout", os.getenv("STRAT_CALL_TIMEOUT", "2.0"))
+            )
+        except Exception:
+            timeout = 2.0
+
+        # -------------------------------
+        # EXECUTOR (sync + async)
+        # -------------------------------
+        def _execute(fn, *args):
+            try:
+                if inspect.iscoroutinefunction(fn):
+                    return asyncio.run(fn(*args))
+                return fn(*args)
+            except TypeError:
+                # fallback: apenas data
+                if len(args) >= 1:
+                    return fn(args[0])
+                raise
+
+        def _execute_with_timeout(fn, *args):
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+                    future = exe.submit(_execute, fn, *args)
+                    return future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                raise
+            except Exception as e:
+                raise e
+
+        # -------------------------------
+        # NORMALIZA RETORNO
+        # -------------------------------
+        def _normalize(symbol: str, raw):
+            if raw is None:
+                return None
+
+            # dict direto
+            if isinstance(raw, dict):
+                norm = self._normalize_strategy_signal(raw)
+                return (symbol, norm) if norm else None
+
+            # lista / múltiplos sinais
+            if isinstance(raw, (list, tuple)):
+                out = []
+                for item in raw:
+                    try:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            norm = self._normalize_strategy_signal(item[1])
+                            if norm:
+                                out.append((item[0], norm))
+                        else:
+                            norm = self._normalize_strategy_signal(item)
+                            if norm:
+                                out.append((symbol, norm))
+                    except Exception:
+                        continue
+                return out if out else None
+
+            # texto (IA / LLM)
+            if isinstance(raw, str) and callable(getattr(self, "_parse_response_full", None)):
+                try:
+                    d, c, tp, sl = self._parse_response_full(raw)
+                    payload = {
+                        "decision": d,
+                        "confidence": c,
+                        "tp_pips": tp,
+                        "sl_pips": sl,
+                        "raw_text": raw,
+                    }
+                    norm = self._normalize_strategy_signal(payload)
+                    return (symbol, norm) if norm else None
+                except Exception:
+                    return None
+
+            return None
+
+        # -------------------------------
+        # RESOLVE STRATEGY (class → instance)
+        # -------------------------------
+        try:
+            if inspect.isclass(strat):
+                try:
+                    strat = strat()
+                except Exception:
+                    strat = strat(ai_manager=getattr(self, "ai", None))
+        except Exception:
+            self.logger.debug("Failed to instantiate strategy %s", strat_name, exc_info=True)
+            return results
+
+        # -------------------------------
+        # MÉTODOS ACEITOS (ORDEM IMPORTA)
+        # -------------------------------
+        method_candidates = (
+            "generate_signal",
+            "next_signal",
+            "signal",
+            "step",
+            "__call__",
+        )
+
+        # -------------------------------
+        # LOOP POR SÍMBOLO
+        # -------------------------------
+        for symbol, data in symbol_data_map.items():
+            if data is None:
+                continue
+
+            for method_name in method_candidates:
+                fn = getattr(strat, method_name, None)
+                if not callable(fn):
+                    continue
+
+                try:
+                    # tenta (data, symbol) → fallback para (data)
+                    raw = _execute_with_timeout(fn, data, symbol)
+                    if raw is None:
+                        raw = _execute_with_timeout(fn, data)
+
+                    normalized = _normalize(symbol, raw)
+                    if not normalized:
+                        break
+
+                    if isinstance(normalized, list):
+                        results.extend(normalized)
+                    else:
+                        results.append(normalized)
+
+                    break  # sucesso → não testa outros métodos
+
+                except concurrent.futures.TimeoutError:
+                    self.logger.warning(
+                        "Strategy %s.%s timeout (%ss) for %s",
+                        strat_name, method_name, timeout, symbol
+                    )
+                    break
+
+                except Exception as e:
+                    self.logger.debug(
+                        "Strategy %s.%s error for %s: %s",
+                        strat_name, method_name, symbol, e,
+                        exc_info=True
+                    )
+                    break
+
+        return results
+
+
+
+
+    def _call_deep_q(self, dq, symbol_data_map: Dict[str, Any]):
+        """
+        Chama o módulo Deep Q para todos os símbolos, normaliza sinais e registra logs detalhados.
+        Retorna lista de tuplas (symbol, normalized_signal).
+        """
+        out = []
+
+        if not dq or not hasattr(dq, "predict") or not callable(dq.predict):
+            self.logger.debug("DeepQ não disponível ou método predict ausente")
+            return out
+
+        def _safe_predict(symbol, data):
+            """
+            Tenta chamar dq.predict com diferentes assinaturas, retorna None se todas falharem.
+            """
+            for args in [(data,), (symbol, data), (data, symbol), ()]:
+                try:
+                    return dq.predict(*args)
+                except TypeError:
+                    continue
+                except Exception as e:
+                    self.logger.debug("DeepQ predict exception for %s with args %s: %s", symbol, args, e)
+            return None
+
+        for symbol, data in symbol_data_map.items():
+            if data is None:
+                self.logger.debug("Sem dados de mercado para %s — pulando DeepQ", symbol)
+                continue
+
+            try:
+                res = _safe_predict(symbol, data)
+                if not res:
+                    continue
+
+                norm = None
+
+                # ---------- Caso res seja dict ----------
+                if isinstance(res, dict):
+                    action = res.get("decision") or res.get("action") or res.get("signal")
+                    if not action:
+                        continue
+                    action = str(action).upper()
+                    if action == "LONG":
+                        action = "BUY"
+                    elif action == "SHORT":
+                        action = "SELL"
+                    if action not in ("BUY", "SELL"):
+                        continue
+
+                    norm = {
+                        "raw": res,
+                        "decision": action,
+                        "confidence": max(0.0, min(1.0, _safe_float(res.get("confidence", 0.0)))),
+                        "tp_pips": max(1.0, _safe_float(res.get("tp_pips", res.get("tp", 1.0)))),
+                        "sl_pips": max(1.0, _safe_float(res.get("sl_pips", res.get("sl", 1.0)))),
+                    }
+
+                # ---------- Caso res seja tuple/list ----------
+                elif isinstance(res, (tuple, list)) and len(res) >= 1:
+                    action = str(res[0]).upper()
+                    if action == "LONG":
+                        action = "BUY"
+                    elif action == "SHORT":
+                        action = "SELL"
+                    if action not in ("BUY", "SELL"):
+                        continue
+
+                    norm = {
+                        "raw": res,
+                        "decision": action,
+                        "confidence": max(0.0, min(1.0, _safe_float(res[1] if len(res) > 1 else 0.0))),
+                        "tp_pips": max(1.0, _safe_float(res[2] if len(res) > 2 else 1.0)),
+                        "sl_pips": max(1.0, _safe_float(res[3] if len(res) > 3 else 1.0)),
+                    }
+
+                if norm:
+                    out.append((symbol, norm))
+                    self.logger.debug(
+                        "DeepQ sinal bufferizado | %s | %s conf=%.2f TP=%.2f SL=%.2f",
+                        symbol, norm["decision"], norm["confidence"], norm["tp_pips"], norm["sl_pips"]
+                    )
+
+            except Exception:
+                self.logger.exception("Falha no processamento DeepQ para %s", symbol)
+
+        return out
+
+
+    # ---------- PROCESS SIGNAL BUFFER ----------
+    def process_signal_buffer(self):
+        """
+        Consume up to SIGNAL_PROCESS_BATCH signals from the internal buffer and process them.
+        - Safe for buffer being deque or list or None.
+        - Uses deque.popleft() (O(1)) when possible.
+        - Supports configurable parallel processing via env SIGNAL_PROCESS_PARALLEL.
+        - Applies per-signal timeout (env SIGNAL_PROCESS_TIMEOUT).
+        - Re-queues transiently failing signals up to SIGNAL_RETRY_COUNT times.
+        - Always thread-safe around the shared buffer.
+        - Logs summary and per-item details (sanitized).
+        """
+        import os
+        import time
+        import concurrent.futures
+        from collections import deque
+
+        # config
+        batch_max = int(os.getenv("SIGNAL_PROCESS_BATCH", str(SIGNAL_PROCESS_BATCH)))
+        timeout = float(os.getenv("SIGNAL_PROCESS_TIMEOUT", "5.0"))
+        parallel = os.getenv("SIGNAL_PROCESS_PARALLEL", "0").lower() in ("1", "true", "yes")
+        max_workers = int(os.getenv("SIGNAL_PROCESS_WORKERS", "4"))
+        retry_limit = int(os.getenv("SIGNAL_RETRY_COUNT", "2"))
+        requeue_front = os.getenv("SIGNAL_REQUEUE_FRONT", "0").lower() in ("1", "true", "yes")
+        start_ts = time.time()
+
+        # defensive: ensure buffer exists and is deque-backed for efficient popleft
+        with self._signal_lock:
+            if getattr(self, "_signal_buffer", None) is None:
+                # initialize empty deque if missing
+                self._signal_buffer = deque(maxlen=MAX_SIGNAL_BUFFER)
+            elif isinstance(self._signal_buffer, list):
+                # convert list -> deque preserving order
+                self._signal_buffer = deque(self._signal_buffer, maxlen=MAX_SIGNAL_BUFFER)
+            elif not isinstance(self._signal_buffer, deque):
+                # unknown type -> make a safe deque copy
+                try:
+                    self._signal_buffer = deque(self._signal_buffer, maxlen=MAX_SIGNAL_BUFFER)
+                except Exception:
+                    self._signal_buffer = deque(maxlen=MAX_SIGNAL_BUFFER)
+
+            # pop up to batch_max items
+            batch = []
+            for _ in range(min(len(self._signal_buffer), batch_max)):
+                try:
+                    item = self._signal_buffer.popleft()
+                except IndexError:
+                    break
+                except Exception as e:
+                    self.logger.debug("process_signal_buffer: popleft error: %s", e, exc_info=True)
+                    break
+                # ensure item is a dict with minimal keys
+                if not isinstance(item, dict):
+                    try:
+                        item = {"raw": item}
+                    except Exception:
+                        item = {"raw": str(item)}
+                # track retries
+                item.setdefault("_signal_retries", 0)
+                batch.append(item)
+
+        if not batch:
+            # nothing to do
+            return
+
+        # worker for single item
+        def _worker(item):
+            sym = item.get("symbol", "<unknown>")
+            try:
+                # submit actual processing with timeout using a short-lived executor
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exec_one:
+                    fut = exec_one.submit(self.process_and_maybe_send_signal, item)
+                    try:
+                        res = fut.result(timeout=timeout)
+                        self.logger.info("Processed buffered signal for %s -> %s", sym, sanitize_for_json(res))
+                        return {"ok": True, "result": res, "item": item}
+                    except concurrent.futures.TimeoutError:
+                        # treat as transient failure
+                        self.logger.warning("Signal processing timeout for %s (timeout=%.2fs)", sym, timeout)
+                        return {"ok": False, "error": "timeout", "item": item}
+                    except Exception as e:
+                        self.logger.exception("Signal processing raised for %s: %s", sym, e)
+                        return {"ok": False, "error": str(e), "item": item}
+            except Exception as e:
+                # protect outer code from unexpected executor errors
+                self.logger.exception("Internal worker exception for %s: %s", sym, e)
+                return {"ok": False, "error": str(e), "item": item}
+
+        results = []
+        # choose parallel or sequential execution
+        if parallel and len(batch) > 1:
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, len(batch))) as pool:
+                    futures = {pool.submit(_worker, it): it for it in batch}
+                    for fut in concurrent.futures.as_completed(futures):
+                        try:
+                            results.append(fut.result())
+                        except Exception as e:
+                            self.logger.exception("process_signal_buffer parallel future exception: %s", e)
+            except Exception as e:
+                # fallback to sequential if pool creation fails
+                self.logger.debug("Parallel signal processing failed, falling back to sequential: %s", e, exc_info=True)
+                for it in batch:
+                    results.append(_worker(it))
+        else:
+            for it in batch:
+                results.append(_worker(it))
+
+        # requeue transient failures with limited retries
+        requeued = 0
+        with self._signal_lock:
+            for r in results:
+                if not isinstance(r, dict):
+                    continue
+                ok = r.get("ok", False)
+                item = r.get("item") or {}
+                if ok:
+                    continue
+                # increment retry counter
+                item["_signal_retries"] = int(item.get("_signal_retries", 0)) + 1
+                if item["_signal_retries"] <= retry_limit:
+                    try:
+                        if requeue_front:
+                            # requeue at front for higher priority
+                            self._signal_buffer.appendleft(item)
+                        else:
+                            self._signal_buffer.append(item)
+                        requeued += 1
+                        self.logger.debug("Re-queued signal for %s (retry %d/%d)", item.get("symbol", "<unknown>"), item["_signal_retries"], retry_limit)
+                    except Exception as e:
+                        self.logger.debug("Failed to requeue signal %s: %s", sanitize_for_json(item), e, exc_info=True)
+                else:
+                    # give up after retries
+                    self.logger.warning("Dropping signal for %s after %d retries", item.get("symbol", "<unknown>"), item["_signal_retries"])
+
+        elapsed = time.time() - start_ts
+        self.logger.debug("process_signal_buffer: processed=%d requeued=%d batch_size=%d elapsed=%.3fs",
+                        len(results), requeued, len(batch), elapsed)
+
+    # ---------- ask_model_with_retries (kept) ----------
+    def ask_model_with_retries(self, symbol, data, retries: int = 2) -> Dict[str, Any]:
+        """
+        Pergunta ao AIManager ou modelos conectados (LLAMA, DeepQ) sobre trade signals,
+        com normalização completa e retries. Logs detalhados de falhas e fallback seguro.
+        """
+        last_exception = None
+        ai_obj = getattr(self, "ai", None) or getattr(self, "ai_manager", None)
+        if ai_obj is None:
+            raise RuntimeError("AIManager not initialized")
+
+        def _normalize_to_dict(res) -> Dict[str, Any]:
+            DEFAULT = {"decision": "HOLD", "confidence": 0.5, "tp_pips": 1.0, "sl_pips": 1.0, "raw": res}
+            try:
+                if res is None:
+                    return DEFAULT
+
+                # dict
+                if isinstance(res, dict):
+                    dec = (res.get("decision") or res.get("action") or res.get("signal") or "").upper()
+                    if dec in ("LONG",): dec = "BUY"
+                    if dec in ("SHORT",): dec = "SELL"
+                    if dec not in ("BUY","SELL","HOLD"): dec = "HOLD"
+                    conf = _safe_float(res.get("confidence") or res.get("conf") or res.get("score") or 0.0, 0.0)
+                    conf = max(0.0, min(1.0, conf if conf <= 1.0 else conf/100.0))
+                    tp = max(0.0, _safe_float(res.get("tp") or res.get("tp_pips") or res.get("take_profit") or 0.0))
+                    sl = max(0.0, _safe_float(res.get("sl") or res.get("sl_pips") or res.get("stop_loss") or 0.0))
+                    if tp <= 0 or sl <= 0:
+                        return DEFAULT
+                    return {"decision": dec, "confidence": conf, "tp_pips": tp, "sl_pips": sl, "raw": res}
+
+                # tuple/list
+                if isinstance(res, (list, tuple)):
+                    if len(res) >= 4:
+                        dec = str(res[0]).upper()
+                        if dec in ("LONG",): dec = "BUY"
+                        if dec in ("SHORT",): dec = "SELL"
+                        if dec not in ("BUY","SELL"): return DEFAULT
+                        conf = max(0.0, min(1.0, _safe_float(res[1],0.0)))
+                        tp = max(0.0, _safe_float(res[2],0.0))
+                        sl = max(0.0, _safe_float(res[3],0.0))
+                        if tp <= 0 or sl <= 0:
+                            return DEFAULT
+                        return {"decision": dec, "confidence": conf, "tp_pips": tp, "sl_pips": sl, "raw": res}
+                    if len(res) == 1 and isinstance(res[0], str):
+                        dec, conf, tp, sl = self._parse_response_full(res[0])
+                        return {"decision": dec, "confidence": conf, "tp_pips": tp, "sl_pips": sl, "raw": res}
+
+                # string
+                if isinstance(res, str):
+                    dec, conf, tp, sl = self._parse_response_full(res)
+                    return {"decision": dec, "confidence": conf, "tp_pips": tp, "sl_pips": sl, "raw": res}
+
+            except Exception as e:
+                self.logger.debug("Normalization failed: %s", e)
+
+            return DEFAULT
+
+        for attempt in range(retries + 1):
+            try:
+                self.logger.debug("AI call attempt %d for %s", attempt, symbol)
+
+                # vote_trade
+                if callable(getattr(ai_obj, "vote_trade", None)):
+                    try:
+                        res = ai_obj.vote_trade(data, symbol=symbol, timeout=AI_TIMEOUT)
+                    except TypeError:
+                        res = ai_obj.vote_trade(data, timeout=AI_TIMEOUT)
+                    ai_res = _normalize_to_dict(res)
+                    self.logger.debug("AIManager vote_trade returned: %s", ai_res)
+                    return ai_res
+
+                # LLAMA
+                if getattr(ai_obj, "llama", None) is not None and callable(getattr(ai_obj, "query_llama", None)):
+                    try:
+                        res = ai_obj.query_llama(symbol, data)
+                        ai_res = _normalize_to_dict(res)
+                        self.logger.debug("LLAMA returned: %s", ai_res)
+                        return ai_res
+                    except Exception as e:
+                        last_exception = e
+                        self.logger.warning("LLAMA query failed for %s: %s", symbol, e)
+
+                # Deep Q
+                if callable(getattr(ai_obj, "query_deep_q", None)):
+                    try:
+                        res = ai_obj.query_deep_q(symbol, data)
+                        ai_res = _normalize_to_dict(res)
+                        self.logger.debug("DeepQ returned: %s", ai_res)
+                        return ai_res
+                    except Exception as e:
+                        last_exception = e
+                        self.logger.warning("DeepQ query failed for %s: %s", symbol, e)
+
+                raise RuntimeError("No AI method available")
+
+            except Exception as e:
+                last_exception = e
+                self.logger.warning("AI call failed for %s, attempt %d: %s", symbol, attempt, e)
+                time.sleep(min(0.5, 0.15 * (attempt + 1)))
+
+        self.logger.error("All AI attempts failed for %s, last exception: %s", symbol, last_exception)
+        raise last_exception
+
+    # ---------- main loop ----------
+    def run(self):
+        logger.info(f"Bot starting | symbols={SYMBOLS} | dry_run={DRY_RUN}")
+
+        # ---------- Inicialização MT5 ----------
+        if not self.mt5 or not self.mt5.is_connected():
+            try:
+                self.init_mt5()
+                account_info = self.mt5.get_account_info()  # retorna dicionário
+                logger.info(f"MT5 initialized successfully | Account={account_info.get('login')} | Balance={account_info.get('balance')}")
+
+            except Exception as e:
+                logger.critical(f"Fatal error initializing MT5: {e}", exc_info=True)
+                return
+
+        # ---------- Inicialização AI ----------
+        if not self.ai:
+            try:
+                self.init_ai()
+                logger.info("AIManager initialized successfully")
+            except Exception as e:
+                logger.warning(f"AIManager initialization failed, continuing without AI: {e}", exc_info=True)
+                self.ai = None
+
+        # ---------- Inicialização do RiskManager ----------
+        try:
+            self.risk_manager = RiskManager(
+                mt5_comm=self.mt5,
+                ai_manager=self.ai
+            )
+            logger.info("RiskManager initialized successfully")
+        except Exception as e:
+            logger.exception("RiskManager initialization failed")
+            self.risk_manager = None
+ 
+        logger.info(f"Component status | MT5=ON | AI={'ON' if self.ai else 'OFF'} | RiskManager={'ON' if self.risk_manager else 'OFF'}")
+        
+        # trading_bot_core.py - where RiskManager is created (replace original call)
+        try:
+            if self.mt5_comm is None or self.ai is None:
+                raise RuntimeError("Skipping RiskManager init: missing mt5_comm or ai_manager")
+            self.risk_manager = RiskManager(mt5_comm=self.mt5_comm, ai_manager=self.ai)
+        except Exception as e:
+            self.logger.warning("RiskManager initialization skipped/failed: %s", e)
+            self.risk_manager = None
+
+        # ---------- Pré-carregamento de strategies ----------
+        try:
+            self.load_strategies()
+            strategy_names = [s.__class__.__name__ for s in self.strategies]
+            logger.info(f"{len(self.strategies)} strategies loaded: {strategy_names}")
+        except Exception as e:
+            logger.exception("Failed to load strategies", exc_info=True)
+            self.strategies = []
+
+        # ---------- Main loop ----------
+        while self._running.is_set():
+            cycle_start = time.time()
+            try:
+                # 1) Executar todas strategies -> buffer de sinais
+                try:
+                    self.run_strategies_cycle()
+                except Exception as e:
+                    logger.exception("run_strategies_cycle failed", exc_info=True)
+
+                # 2) Processar sinais buffered
+                try:
+                    self.process_signal_buffer()
+                except Exception as e:
+                    logger.exception("process_signal_buffer failed", exc_info=True)
+
+                # 3) Per-symbol AI fallback + trade execution (paralelo leve)
+                if SYMBOLS:
+                    with ThreadPoolExecutor(max_workers=len(SYMBOLS)) as exe:
+                        futures = {exe.submit(self._process_symbol, sym): sym for sym in SYMBOLS}
+                        for fut in as_completed(futures):
+                            sym = futures[fut]
+                            try:
+                                fut.result()
+                            except Exception as e:
+                                logger.exception(f"{sym}: error in per-symbol thread", exc_info=True)
+
+            except Exception:
+                logger.exception("Main loop iteration failed", exc_info=True)
+
+            # ---------- Sleep para manter intervalo ----------
+            elapsed = time.time() - cycle_start
+            sleep_time = max(0, LOOP_INTERVAL - elapsed)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
+        logger.info("Bot stopped gracefully")
+
+
+    def _process_symbol(self, symbol: str):
+        """
+        Processa um único símbolo: fetch de dados, AI fallback e execução de trade.
+        Rodável em ThreadPoolExecutor.
+        """
+        try:
+            data = None
+            try:
+                data = self.mt5.get_symbol_data(symbol)
+            except Exception as e:
+                logger.warning(f"{symbol}: failed to fetch data from MT5: {e}")
+                return
+
+            if data is None or (hasattr(data, 'empty') and getattr(data, 'empty')):
+                logger.debug(f"{symbol}: no market data")
+                return
+
+            # ---------- AI decision ----------
+            ai_res = None
+            if self.ai:
+                try:
+                    ai_res = self.ask_model_with_retries(symbol, data, retries=2)
+                    logger.debug(f"{symbol}: AI decision={ai_res.get('decision')} conf={ai_res.get('confidence'):.2f} "
+                                f"tp={ai_res.get('tp_pips')} sl={ai_res.get('sl_pips')}")
+                except Exception as e:
+                    logger.warning(f"{symbol}: AI call failed: {e}")
+                    return
+
+            # ---------- Executar trade ----------
+            if ai_res:
+                try:
+                    trade_res = self.execute_trade(symbol, ai_res)
+                    logger.info(f"{symbol}: trade result = {trade_res}")
+                except Exception as e:
+                    logger.warning(f"{symbol}: execute_trade failed: {e}")
+
+        except Exception:
+            logger.exception(f"{symbol}: unhandled exception in _process_symbol")
+
+
+
+    # ---------- shutdown ----------
+    def shutdown(self):
+        self.logger.info("Shutdown requested")
+        self._running.clear()
+
+        try:
+            if self.mt5:
+                self.mt5.shutdown()
+        except Exception:
+            self.logger.exception("Error shutting down MT5")
+
+        try:
+            if getattr(self, 'ai', None) and hasattr(self.ai, 'close'):
+                self.ai.close()
+        except Exception:
+            self.logger.exception("Error closing AI")
+
+        try:
+            if hasattr(self, '_ai_executor'):
+                self._ai_executor.shutdown(wait=False)
+        except Exception:
+            self.logger.exception("Error shutting down AI executor")
+
+        try:
+            if hasattr(self, '_strat_executor'):
+                self._strat_executor.shutdown(wait=False)
+        except Exception:
+            self.logger.exception("Error shutting down strategy executor")
+
+app = Flask(__name__)
+
+def start_dashboard_thread(host="0.0.0.0", port=5000):
+    """
+    Inicia o dashboard em thread separada.
+    Retorna a thread criada.
+    """
+    def run_app():
+        app.run(host=host, port=port, debug=False, use_reloader=False)
+
+    thread = threading.Thread(target=run_app, daemon=True)
+    thread.start()
+    return thread
+
+# Para injetar a instância do bot no dashboard
+_bot_instance = None
+def inject_bot_instance(bot):
+    global _bot_instance
+    _bot_instance = bot
+
+# --------------------------- ENTRYPOINT --------------------------
+bot = TradingBot()
+
+def _signal_handler(sig, frame):
+    bot.logger.info(f"Signal {sig} received — shutting down")
+    bot.shutdown()
+
+import signal
+signal.signal(signal.SIGINT, _signal_handler)
+try:
+    signal.signal(signal.SIGTERM, _signal_handler)
+except Exception:
+    pass
+
+if __name__ == '__main__':
+    # ---------- Iniciar dashboard ----------
+    try:
+        from backend.dashboard_server import start_dashboard_thread, inject_bot_instance
+
+        # Inicia em thread separada
+        dashboard_thread = start_dashboard_thread()
+        bot.logger.info("✅ Dashboard iniciado em thread separada")
+
+        # Pequena espera para garantir que o Flask inicializou
+        import time
+        time.sleep(2)
+
+        # Injeta instância do bot
+        inject_bot_instance(bot)
+        bot.logger.info("✅ Bot conectado ao dashboard")
+    except Exception as e:
+        bot.logger.warning(f"⚠️ Dashboard não pôde ser iniciado: {e}")
+        bot.logger.info("Bot continuará rodando sem dashboard")
+
+    # ---------- Rodar bot ----------
+    bot.run()

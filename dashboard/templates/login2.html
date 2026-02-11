@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JokaMazKiBu Trading Bot - Login</title>
+    <meta name="description" content="Acesse o dashboard do seu bot de trading JokaMazKiBu para controle total de estratégias, monitoramento em tempo real e análises avançadas.">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="login-page">
+    <!-- Background animado com triângulos -->
+    <div class="animated-background">
+        <div class="triangle triangle-1"></div>
+        <div class="triangle triangle-2"></div>
+        <div class="triangle triangle-3"></div>
+        <div class="triangle triangle-4"></div>
+        <div class="triangle triangle-5"></div>
+        <div class="triangle triangle-6"></div>
+    </div>
+    
+    <!-- Floating Triangles -->
+    <div class="floating-triangles">
+        <div class="floating-triangle"></div>
+        <div class="floating-triangle"></div>
+        <div class="floating-triangle"></div>
+        <div class="floating-triangle"></div>
+    </div>
+    
+    <!-- Golden Particles -->
+    <div class="golden-particles">
+        <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
+        <div class="particle" style="left: 20%; animation-delay: 2s;"></div>
+        <div class="particle" style="left: 30%; animation-delay: 4s;"></div>
+        <div class="particle" style="left: 40%; animation-delay: 6s;"></div>
+        <div class="particle" style="left: 50%; animation-delay: 8s;"></div>
+        <div class="particle" style="left: 60%; animation-delay: 10s;"></div>
+        <div class="particle" style="left: 70%; animation-delay: 12s;"></div>
+        <div class="particle" style="left: 80%; animation-delay: 14s;"></div>
+        <div class="particle" style="left: 90%; animation-delay: 16s;"></div>
+    </div>
+
+    <!-- Container principal -->
+    <div class="login-container">
+        <!-- Logo e informações -->
+        <div class="login-header">
+            <div class="logo">
+                <i class="fas fa-robot"></i>
+                <h1>JokaMazKiBu</h1>
+                <span class="subtitle">Trading Bot v4.0 ULTRA HARDCORE</span>
+            </div>
+            
+            <!-- Status do sistema -->
+            <div class="system-status">
+                <div class="status-item">
+                    <i class="fas fa-circle status-active"></i>
+                    <span>Sistema Ativo</span>
+                </div>
+                <div class="status-item">
+                    <i class="fas fa-brain status-active"></i>
+                    <span>7 IAs Operando</span>
+                </div>
+                <div class="status-item">
+                    <i class="fas fa-chart-line status-active"></i>
+                    <span>Trading Ativo</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Formulário de login -->
+        <div class="login-form-container">
+            <form class="login-form" method="POST" action="{{ url_for('login') }}">
+                <h2>Acesso Restrito</h2>
+                <p class="form-subtitle">Entre com suas credenciais para acessar o dashboard</p>
+                
+                {% if error %}
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    {{ error }}
+                </div>
+                {% endif %}
+                
+                <div class="form-group">
+                    <label for="username">
+                        <i class="fas fa-user"></i>
+                        Usuário
+                    </label>
+                    <input type="text" id="username" name="username" required 
+                           placeholder="Digite seu usuário" autocomplete="username">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">
+                        <i class="fas fa-lock"></i>
+                        Senha
+                    </label>
+                    <input type="password" id="password" name="password" required 
+                           placeholder="Digite sua senha" autocomplete="current-password">
+                </div>
+                
+                <button type="submit" class="login-btn">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Entrar no Dashboard
+                </button>
+            </form>
+        </div>
+
+        <!-- Informações adicionais -->
+        <div class="login-footer">
+            <div class="info-cards">
+                <div class="info-card">
+                    <i class="fas fa-target"></i>
+                    <h3>Meta</h3>
+                    <p>50€ → 10.000€/mês</p>
+                </div>
+                <div class="info-card">
+                    <i class="fas fa-chart-bar"></i>
+                    <h3>Performance</h3>
+                    <p>200-1000 trades/dia</p>
+                </div>
+                <div class="info-card">
+                    <i class="fas fa-shield-alt"></i>
+                    <h3>Segurança</h3>
+                    <p>Risk Management IA</p>
+                </div>
+            </div>
+            
+            <div class="copyright">
+                <p>&copy; 2024 JokaMazKiBu Trading Bot. Todos os direitos reservados.</p>
+                <p>Sistema de Trading Automatizado com Inteligência Artificial</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+   <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+</html>
+

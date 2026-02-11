@@ -1,0 +1,917 @@
+openapi: 3.0.3
+info:
+  title: MT5 Trading Dashboard API
+  description: |
+    API REST para gerenciamento de bot de trading MT5.
+    Backend Flask deve implementar estes endpoints para integração com o frontend React.
+  version: 1.0.0
+  contact:
+    name: MT5 Trading Dashboard
+    email: support@example.com
+
+servers:
+  - url: http://localhost:5000
+    description: Servidor de desenvolvimento local
+  - url: https://api.trading-bot.com
+    description: Servidor de produção
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Authentication
+    description: Autenticação e autorização
+  - name: Account
+    description: Informações da conta MT5
+  - name: Trading
+    description: Operações de trading (ordens, posições)
+  - name: Strategies
+    description: Gerenciamento de estratégias
+  - name: Configuration
+    description: Configurações do sistema
+  - name: Logs
+    description: Logs e auditoria
+  - name: Webhooks
+    description: Webhooks para sinais externos
+
+paths:
+  /api/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login de administrador
+      description: Autentica usuário e retorna token JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  format: password
+                  example: admin123
+      responses:
+        '200':
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  expires_in:
+                    type: integer
+                    example: 3600
+                  user:
+                    type: object
+                    properties:
+                      username:
+                        type: string
+                      role:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/health:
+    get:
+      tags:
+        - Account
+      summary: Health check
+      description: Verifica status do backend e conexão MT5
+      responses:
+        '200':
+          description: Sistema operacional
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  mt5_connected:
+                    type: boolean
+                    example: true
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                    example: 1.0.0
+
+  /api/account:
+    get:
+      tags:
+        - Account
+      summary: Informações da conta
+      description: Retorna dados da conta MT5 (saldo, patrimônio, margem)
+      responses:
+        '200':
+          description: Dados da conta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/symbols:
+    get:
+      tags:
+        - Trading
+      summary: Lista de símbolos
+      description: Retorna símbolos disponíveis no MT5
+      responses:
+        '200':
+          description: Lista de símbolos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Symbol'
+
+  /api/positions:
+    get:
+      tags:
+        - Trading
+      summary: Posições abertas
+      description: Retorna todas as posições abertas
+      responses:
+        '200':
+          description: Lista de posições
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Position'
+
+  /api/orders:
+    get:
+      tags:
+        - Trading
+      summary: Ordens
+      description: Retorna ordens (abertas, fechadas ou todas)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, closed, all]
+            default: open
+      responses:
+        '200':
+          description: Lista de ordens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+
+  /api/history:
+    get:
+      tags:
+        - Trading
+      summary: Histórico de trades
+      description: Retorna histórico de trades fechados
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Histórico de trades
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryTrade'
+
+  /api/place:
+    post:
+      tags:
+        - Trading
+      summary: Enviar ordem
+      description: |
+        Envia ordem para o MT5. Passa por validadores (AI + estratégias) a menos que force=true.
+        Se dry_run=true, apenas simula sem executar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOrderRequest'
+      responses:
+        '200':
+          description: Ordem enviada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ticket:
+                    type: integer
+                    example: 123456789
+                  message:
+                    type: string
+                  dry_run:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/close:
+    post:
+      tags:
+        - Trading
+      summary: Fechar ordem/posição
+      description: Fecha uma ordem ou posição específica
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - order_id
+              properties:
+                order_id:
+                  type: string
+                  example: "123456789"
+                audit_note:
+                  type: string
+                  example: Fechado manualmente via dashboard
+      responses:
+        '200':
+          description: Ordem fechada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/strategies:
+    get:
+      tags:
+        - Strategies
+      summary: Lista de estratégias
+      description: Retorna todas as estratégias disponíveis e seu status
+      responses:
+        '200':
+          description: Lista de estratégias
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Strategy'
+
+  /api/strategies/toggle:
+    post:
+      tags:
+        - Strategies
+      summary: Ativar/desativar estratégia
+      description: Liga ou desliga uma estratégia específica
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - strategy
+                - enabled
+              properties:
+                strategy:
+                  type: string
+                  example: RSI_Strategy
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Estratégia atualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  strategy:
+                    type: string
+                  enabled:
+                    type: boolean
+
+  /api/config:
+    get:
+      tags:
+        - Configuration
+      summary: Obter configurações
+      description: Retorna configurações atuais do sistema
+      responses:
+        '200':
+          description: Configurações
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+
+  /api/config/update:
+    post:
+      tags:
+        - Configuration
+      summary: Atualizar configurações
+      description: Atualiza configurações do sistema
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Config'
+      responses:
+        '200':
+          description: Configurações atualizadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/logs:
+    get:
+      tags:
+        - Logs
+      summary: Logs do sistema
+      description: Retorna logs do sistema com filtros
+      parameters:
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Lista de logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LogEntry'
+
+  /api/audit:
+    get:
+      tags:
+        - Logs
+      summary: Auditoria
+      description: Retorna registros de auditoria
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Registros de auditoria
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+
+  /hooks/signal:
+    post:
+      tags:
+        - Webhooks
+      summary: Webhook de sinal externo
+      description: |
+        Recebe sinais de fontes externas (TradingView, Telegram, etc).
+        Backend deve chamar mt5_communication._process_signal_payload(payload)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalWebhook'
+      responses:
+        '200':
+          description: Sinal recebido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  signal_uuid:
+                    type: string
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Account:
+      type: object
+      properties:
+        balance:
+          type: number
+          format: double
+          example: 10000.00
+        equity:
+          type: number
+          format: double
+          example: 10250.50
+        margin:
+          type: number
+          format: double
+          example: 500.00
+        free_margin:
+          type: number
+          format: double
+          example: 9750.50
+        margin_level:
+          type: number
+          format: double
+          example: 2050.10
+        profit:
+          type: number
+          format: double
+          example: 250.50
+        currency:
+          type: string
+          example: USD
+        leverage:
+          type: integer
+          example: 100
+        server:
+          type: string
+          example: MetaQuotes-Demo
+        name:
+          type: string
+          example: John Doe
+        number:
+          type: integer
+          example: 12345678
+
+    Symbol:
+      type: object
+      properties:
+        name:
+          type: string
+          example: EURUSD
+        description:
+          type: string
+          example: Euro vs US Dollar
+        bid:
+          type: number
+          format: double
+          example: 1.08500
+        ask:
+          type: number
+          format: double
+          example: 1.08520
+        spread:
+          type: integer
+          example: 20
+        digits:
+          type: integer
+          example: 5
+        point:
+          type: number
+          format: double
+          example: 0.00001
+        volume_min:
+          type: number
+          format: double
+          example: 0.01
+        volume_max:
+          type: number
+          format: double
+          example: 100.0
+        volume_step:
+          type: number
+          format: double
+          example: 0.01
+
+    Position:
+      type: object
+      properties:
+        ticket:
+          type: integer
+          example: 123456789
+        symbol:
+          type: string
+          example: EURUSD
+        type:
+          type: string
+          enum: [buy, sell]
+        volume:
+          type: number
+          format: double
+          example: 0.10
+        price_open:
+          type: number
+          format: double
+          example: 1.08500
+        price_current:
+          type: number
+          format: double
+          example: 1.08550
+        sl:
+          type: number
+          format: double
+          example: 1.08200
+        tp:
+          type: number
+          format: double
+          example: 1.09000
+        profit:
+          type: number
+          format: double
+          example: 50.00
+        swap:
+          type: number
+          format: double
+          example: -0.50
+        commission:
+          type: number
+          format: double
+          example: -2.00
+        time:
+          type: string
+          format: date-time
+        comment:
+          type: string
+
+    Order:
+      type: object
+      properties:
+        ticket:
+          type: integer
+        symbol:
+          type: string
+        type:
+          type: string
+        volume:
+          type: number
+          format: double
+        price_open:
+          type: number
+          format: double
+        price_current:
+          type: number
+          format: double
+        sl:
+          type: number
+          format: double
+        tp:
+          type: number
+          format: double
+        time_setup:
+          type: string
+          format: date-time
+        time_done:
+          type: string
+          format: date-time
+        state:
+          type: string
+        comment:
+          type: string
+
+    HistoryTrade:
+      type: object
+      properties:
+        ticket:
+          type: integer
+        symbol:
+          type: string
+        type:
+          type: string
+          enum: [buy, sell]
+        volume:
+          type: number
+          format: double
+        price_open:
+          type: number
+          format: double
+        price_close:
+          type: number
+          format: double
+        sl:
+          type: number
+          format: double
+        tp:
+          type: number
+          format: double
+        profit:
+          type: number
+          format: double
+        swap:
+          type: number
+          format: double
+        commission:
+          type: number
+          format: double
+        time_open:
+          type: string
+          format: date-time
+        time_close:
+          type: string
+          format: date-time
+        comment:
+          type: string
+
+    Strategy:
+      type: object
+      properties:
+        name:
+          type: string
+          example: RSI_Strategy
+        enabled:
+          type: boolean
+        description:
+          type: string
+        symbols:
+          type: array
+          items:
+            type: string
+          example: [EURUSD, GBPUSD]
+        timeframe:
+          type: string
+          example: M15
+        parameters:
+          type: object
+          additionalProperties: true
+        performance:
+          type: object
+          properties:
+            total_trades:
+              type: integer
+            winning_trades:
+              type: integer
+            losing_trades:
+              type: integer
+            win_rate:
+              type: number
+              format: double
+            profit:
+              type: number
+              format: double
+
+    PlaceOrderRequest:
+      type: object
+      required:
+        - symbol
+        - side
+        - volume
+      properties:
+        symbol:
+          type: string
+          example: EURUSD
+        side:
+          type: string
+          enum: [buy, sell]
+        volume:
+          type: number
+          format: double
+          example: 0.01
+        tp:
+          type: number
+          format: double
+          description: Take Profit em pips ou preço absoluto
+          example: 50
+        sl:
+          type: number
+          format: double
+          description: Stop Loss em pips ou preço absoluto
+          example: 30
+        source:
+          type: string
+          default: manual_dashboard
+          example: manual_dashboard
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          default: 1.0
+          example: 0.85
+        uuid:
+          type: string
+          description: UUID único do sinal (gerado automaticamente se não fornecido)
+          example: manual_1234567890
+        force:
+          type: boolean
+          default: false
+          description: Se true, ignora validadores AI/estratégias
+        dry_run:
+          type: boolean
+          default: false
+          description: Se true, apenas simula sem executar
+        audit_note:
+          type: string
+          maxLength: 500
+          description: Nota de auditoria
+          example: Ordem manual de teste
+
+    SignalWebhook:
+      type: object
+      required:
+        - symbol
+        - side
+        - volume
+        - source
+      properties:
+        symbol:
+          type: string
+          example: EURUSD
+        side:
+          type: string
+          enum: [buy, sell]
+        volume:
+          type: number
+          format: double
+          example: 0.01
+        tp:
+          type: number
+          format: double
+        sl:
+          type: number
+          format: double
+        source:
+          type: string
+          example: tradingview
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          example: 0.75
+        uuid:
+          type: string
+          example: tv_signal_1234567890
+
+    Config:
+      type: object
+      properties:
+        risk_management:
+          type: object
+          properties:
+            max_risk_per_trade:
+              type: number
+              format: double
+            max_daily_loss:
+              type: number
+              format: double
+            max_positions:
+              type: integer
+            max_volume_per_symbol:
+              type: number
+              format: double
+        ai_settings:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            min_confidence:
+              type: number
+              format: double
+            models:
+              type: array
+              items:
+                type: string
+        telegram:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            chat_id:
+              type: string
+        general:
+          type: object
+          properties:
+            dry_run:
+              type: boolean
+            force_send:
+              type: boolean
+            log_level:
+              type: string
+              enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+        message:
+          type: string
+        module:
+          type: string
+        extra:
+          type: object
+          additionalProperties: true
+
+    AuditEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        user:
+          type: string
+        action:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        ip_address:
+          type: string
+
+  responses:
+    Unauthorized:
+      description: Token inválido ou ausente
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: Unauthorized
+
+    BadRequest:
+      description: Requisição inválida
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              details:
+                type: object

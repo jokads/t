@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JokaMazKiBu Trading Bot Dashboard v8.0 HARDCORE</title>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    
+    <!-- Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.45.0/dist/apexcharts.min.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="logo">
+                    <div class="logo-text">
+                        <h2>JOKA</h2>
+                        <p>Trading Bot v8.0</p>
+                    </div>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#overview" class="nav-item active" data-section="overview">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Overview</span>
+                </a>
+                <a href="#trades" class="nav-item" data-section="trades">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span>Trades Ativos</span>
+                    <span class="badge" id="trades-badge">0</span>
+                </a>
+                <a href="#performance" class="nav-item" data-section="performance">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Performance</span>
+                </a>
+                <a href="#strategies" class="nav-item" data-section="strategies">
+                    <i class="fas fa-brain"></i>
+                    <span>Estratégias</span>
+                </a>
+                <a href="#ai" class="nav-item" data-section="ai">
+                    <i class="fas fa-robot"></i>
+                    <span>IA & Análise</span>
+                </a>
+                <a href="#risk" class="nav-item" data-section="risk">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>Risco & Config</span>
+                </a>
+                <a href="#news" class="nav-item" data-section="news">
+                    <i class="fas fa-newspaper"></i>
+                    <span>Notícias</span>
+                </a>
+                <a href="#history" class="nav-item" data-section="history">
+                    <i class="fas fa-history"></i>
+                    <span>Histórico</span>
+                </a>
+                <a href="#logs" class="nav-item" data-section="logs">
+                    <i class="fas fa-list"></i>
+                    <span>Logs</span>
+                </a>
+                <a href="#settings" class="nav-item" data-section="settings">
+                    <i class="fas fa-cog"></i>
+                    <span>Configurações</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <div>
+                        <p class="user-name">{{ username }}</p>
+                        <p class="user-status">● Online</p>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="btn-logout">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Sair
+                </a>
+            </div>
+        </aside>
+        
+        <!-- MAIN CONTENT -->
+        <main class="main-content">
+            <!-- HEADER -->
+            <header class="dashboard-header">
+                <div class="header-left">
+                    <h1 id="section-title">Dashboard Overview</h1>
+                    <p id="section-subtitle">Visão geral do seu bot de trading</p>
+                </div>
+                <div class="header-right">
+                    <div class="status-indicator">
+                        <span class="dot" id="bot-status-dot"></span>
+                        <span id="bot-status-text">Offline</span>
+                    </div>
+                    <div class="time-display" id="time-display">00:00:00</div>
+                </div>
+            </header>
+            
+            <!-- SECTIONS -->
+            <div class="sections-container">
+                
+                <!-- OVERVIEW SECTION -->
+                <section id="overview" class="section active">
+                    <div class="section-grid">
+                        <div class="card stat-card">
+                            <div class="card-header">
+                                <h3>Saldo</h3>
+                                <i class="fas fa-wallet"></i>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value" id="balance">$50,000.00</p>
+                                <p class="stat-label">USD</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card stat-card">
+                            <div class="card-header">
+                                <h3>Equity</h3>
+                                <i class="fas fa-chart-pie"></i>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value" id="equity">$50,000.00</p>
+                                <p class="stat-label">Patrimônio</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card stat-card">
+                            <div class="card-header">
+                                <h3>Lucro/Perda</h3>
+                                <i class="fas fa-arrow-trend-up"></i>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value positive" id="profit">+$0.00</p>
+                                <p class="stat-label">Hoje</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card stat-card">
+                            <div class="card-header">
+                                <h3>Taxa de Ganho</h3>
+                                <i class="fas fa-percent"></i>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value" id="win-rate">0%</p>
+                                <p class="stat-label">Trades</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section-grid">
+                        <div class="card full-width">
+                            <div class="card-header">
+                                <h3>Curva de Equity</h3>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="equityChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- TRADES SECTION -->
+                <section id="trades" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Trades Ativos</h3>
+                            <button class="btn-primary btn-sm" data-modal="trade-modal">
+                                <i class="fas fa-plus"></i> Novo Trade
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="trades-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Símbolo</th>
+                                            <th>Direção</th>
+                                            <th>Lote</th>
+                                            <th>Entrada</th>
+                                            <th>SL</th>
+                                            <th>TP</th>
+                                            <th>Lucro</th>
+                                            <th>Estratégia</th>
+                                            <th>Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="trades-tbody">
+                                        <tr>
+                                            <td colspan="10" class="text-center">Nenhum trade ativo</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- PERFORMANCE SECTION -->
+                <section id="performance" class="section">
+                    <div class="section-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Sharpe Ratio</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value" id="sharpe">1.45</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Fator de Lucro</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value" id="profit-factor">2.30</p>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Drawdown Máx</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="stat-value negative" id="max-drawdown">-5.2%</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section-grid">
+                        <div class="card full-width">
+                            <div class="card-header">
+                                <h3>Distribuição de Trades</h3>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="tradesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- STRATEGIES SECTION -->
+                <section id="strategies" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Estratégias Ativas</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="strategies-container" class="strategies-grid">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- AI SECTION -->
+                <section id="ai" class="section">
+                    <div class="section-grid">
+                        <div class="card full-width">
+                            <div class="card-header">
+                                <h3>Modelos de IA Disponíveis</h3>
+                            </div>
+                            <div class="card-body">
+                                <div id="ai-models-container" class="ai-grid">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section-grid">
+                        <div class="card full-width">
+                            <div class="card-header">
+                                <h3>Análise de Símbolo</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="analysis-form">
+                                    <input type="text" id="symbol-input" placeholder="Ex: EURUSD" value="EURUSD">
+                                    <select id="ai-model-select">
+                                        <option value="gpt1">GPT-1</option>
+                                        <option value="gpt2">GPT-2</option>
+                                        <option value="gpt3">GPT-3</option>
+                                        <option value="gpt4">GPT-4</option>
+                                        <option value="gpt5">GPT-5</option>
+                                        <option value="gpt6">GPT-6</option>
+                                        <option value="gpt7">GPT-7</option>
+                                    </select>
+                                    <button class="btn-primary" id="btn-analyze">
+                                        <i class="fas fa-search"></i> Analisar
+                                    </button>
+                                </div>
+                                <div id="analysis-result" class="analysis-result" style="display: none;">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- RISK SECTION -->
+                <section id="risk" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Configuração de Risco</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="config-form">
+                                <div class="form-group">
+                                    <label>Risco por Trade (%)</label>
+                                    <input type="number" id="risk-per-trade" min="0.1" max="5" step="0.1" value="0.5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Perda Máxima Diária (%)</label>
+                                    <input type="number" id="max-daily-loss" min="1" max="10" step="0.5" value="2">
+                                </div>
+                                <div class="form-group">
+                                    <label>Máximo de Trades Simultâneos</label>
+                                    <input type="number" id="max-concurrent-trades" min="1" max="20" step="1" value="5">
+                                </div>
+                                <button class="btn-primary" id="btn-update-risk">
+                                    <i class="fas fa-save"></i> Salvar Configuração
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- NEWS SECTION -->
+                <section id="news" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Notícias do Mercado</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="news-container" class="news-list">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- HISTORY SECTION -->
+                <section id="history" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Histórico de Trades</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="history-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Data</th>
+                                            <th>Símbolo</th>
+                                            <th>Direção</th>
+                                            <th>Lote</th>
+                                            <th>Entrada</th>
+                                            <th>Saída</th>
+                                            <th>Lucro</th>
+                                            <th>Estratégia</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="history-tbody">
+                                        <tr>
+                                            <td colspan="8" class="text-center">Nenhum histórico disponível</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- LOGS SECTION -->
+                <section id="logs" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Logs do Sistema</h3>
+                            <button class="btn-secondary btn-sm" id="btn-clear-logs">
+                                <i class="fas fa-trash"></i> Limpar
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="logs-container" class="logs-list">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- SETTINGS SECTION -->
+                <section id="settings" class="section">
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <h3>Configurações Gerais</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="settings-form">
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" checked> Notificações de Trade
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" checked> Notificações de Erro
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label>Intervalo de Atualização (segundos)</label>
+                                    <input type="number" min="1" max="60" value="2">
+                                </div>
+                                <button class="btn-primary">
+                                    <i class="fas fa-save"></i> Salvar Preferências
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+    
+    <!-- MODAL - EXECUTE TRADE -->
+    <div id="trade-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Executar Trade Manual</h2>
+                <button class="btn-close" data-close="trade-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Símbolo</label>
+                    <input type="text" id="trade-symbol" placeholder="Ex: EURUSD" value="EURUSD">
+                </div>
+                <div class="form-group">
+                    <label>Direção</label>
+                    <select id="trade-direction">
+                        <option value="BUY">COMPRAR (BUY)</option>
+                        <option value="SELL">VENDER (SELL)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Lote</label>
+                    <input type="number" id="trade-volume" min="0.01" max="100" step="0.01" value="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Stop Loss (pips)</label>
+                    <input type="number" id="trade-sl" min="0" step="1" value="50">
+                </div>
+                <div class="form-group">
+                    <label>Take Profit (pips)</label>
+                    <input type="number" id="trade-tp" min="0" step="1" value="100">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="trade-modal">Cancelar</button>
+                <button class="btn-primary" id="btn-execute-trade">
+                    <i class="fas fa-check"></i> Executar Trade
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- NOTIFICATIONS -->
+    <div id="notifications-container" class="notifications-container"></div>
+    
+    <!-- SCRIPTS -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

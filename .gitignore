@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+vcapi/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Modelos de IA (NUNCA subir)
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Dados temporários
+data/
+tmp/
+cache/
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# SO
+.DS_Store
+Thumbs.db

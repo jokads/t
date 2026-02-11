@@ -1,0 +1,362 @@
+{
+  "llama": {
+    "success": 7584,
+    "fail": 12146,
+    "last_seen": 1768746009.4617112,
+    "weight": 1.4609877857179059,
+    "calls": 19730,
+    "created_at": 1766519204.7832587,
+    "updated_at": 1768746009.4617112
+  },
+  "gpt2": {
+    "success": 0,
+    "fail": 3046,
+    "calls": 3046,
+    "weight": 0.5004102395799147,
+    "created_at": 1766670337.7415879,
+    "last_seen": 1767416233.4267619,
+    "updated_at": 1767416233.4267619
+  },
+  "gpt1": {
+    "success": 2,
+    "fail": 3142,
+    "calls": 3144,
+    "weight": 0.5019872813990461,
+    "created_at": 1766670337.7425902,
+    "last_seen": 1767327189.2363365,
+    "updated_at": 1767327189.2363365
+  },
+  "gpt3": {
+    "success": 2,
+    "fail": 3036,
+    "calls": 3038,
+    "weight": 0.5020565975649884,
+    "created_at": 1766670337.7425902,
+    "last_seen": 1767416240.4835298,
+    "updated_at": 1767416240.4835298
+  },
+  "gpt0": {
+    "success": 17,
+    "fail": 3143,
+    "calls": 3160,
+    "weight": 0.5138405567858273,
+    "created_at": 1766670337.7425902,
+    "last_seen": 1767327189.2363365,
+    "updated_at": 1767327189.2363365
+  },
+  "gpt5": {
+    "success": 0,
+    "fail": 567,
+    "calls": 567,
+    "weight": 0.5022007042253521,
+    "created_at": 1766670342.758846,
+    "last_seen": 1767416250.0392787,
+    "updated_at": 1767416250.0392787
+  },
+  "gpt4": {
+    "success": 0,
+    "fail": 1021,
+    "calls": 1021,
+    "weight": 0.5012230919765166,
+    "created_at": 1766670342.7670145,
+    "last_seen": 1767416249.7317927,
+    "updated_at": 1767416249.7317927
+  },
+  "gpt6": {
+    "success": 0,
+    "fail": 565,
+    "calls": 565,
+    "weight": 0.502208480565371,
+    "created_at": 1766670342.7680159,
+    "last_seen": 1767416265.9487994,
+    "updated_at": 1767416265.9487994
+  },
+  "gpt7": {
+    "success": 0,
+    "fail": 556,
+    "calls": 556,
+    "weight": 0.5022441651705566,
+    "created_at": 1766670342.7680159,
+    "last_seen": 1767126465.116125,
+    "updated_at": 1767126465.116125
+  },
+  "gpt11": {
+    "success": 0,
+    "fail": 194,
+    "calls": 194,
+    "weight": 0.5064102564102564,
+    "created_at": 1766670347.7735574,
+    "last_seen": 1766677646.4987764,
+    "updated_at": 1766677646.4987764
+  },
+  "gpt10": {
+    "success": 0,
+    "fail": 194,
+    "calls": 194,
+    "weight": 0.5064102564102564,
+    "created_at": 1766670347.7747614,
+    "last_seen": 1766677645.1417928,
+    "updated_at": 1766677645.1417928
+  },
+  "gpt8": {
+    "success": 0,
+    "fail": 557,
+    "calls": 557,
+    "weight": 0.5022401433691757,
+    "created_at": 1766670347.7757642,
+    "last_seen": 1767126465.116125,
+    "updated_at": 1767126465.116125
+  },
+  "gpt9": {
+    "success": 0,
+    "fail": 556,
+    "calls": 556,
+    "weight": 0.5022441651705566,
+    "created_at": 1766670347.7777607,
+    "last_seen": 1767126465.116125,
+    "updated_at": 1767126465.116125
+  },
+  "gpt14": {
+    "success": 0,
+    "fail": 194,
+    "calls": 194,
+    "weight": 0.5064102564102564,
+    "created_at": 1766670352.778898,
+    "last_seen": 1766677651.5133138,
+    "updated_at": 1766677651.5133138
+  },
+  "gpt12": {
+    "success": 0,
+    "fail": 194,
+    "calls": 194,
+    "weight": 0.5064102564102564,
+    "created_at": 1766670352.7798998,
+    "last_seen": 1766677649.9062524,
+    "updated_at": 1766677649.9062524
+  },
+  "gpt13": {
+    "success": 0,
+    "fail": 194,
+    "calls": 194,
+    "weight": 0.5064102564102564,
+    "created_at": 1766670352.7798998,
+    "last_seen": 1766677650.1569102,
+    "updated_at": 1766677650.1569102
+  },
+  "gpt15": {
+    "success": 0,
+    "fail": 194,
+    "calls": 194,
+    "weight": 0.5064102564102564,
+    "created_at": 1766670352.7948763,
+    "last_seen": 1766677654.9196599,
+    "updated_at": 1766677654.9196599
+  },
+  "gpt16": {
+    "success": 0,
+    "fail": 193,
+    "calls": 193,
+    "weight": 0.5064432989690721,
+    "created_at": 1766670357.788626,
+    "last_seen": 1766677655.1600158,
+    "updated_at": 1766677655.1600158
+  },
+  "gpt17": {
+    "success": 0,
+    "fail": 193,
+    "calls": 193,
+    "weight": 0.5064432989690721,
+    "created_at": 1766670357.7896297,
+    "last_seen": 1766677656.5267599,
+    "updated_at": 1766677656.5267599
+  },
+  "gpt18": {
+    "success": 0,
+    "fail": 193,
+    "calls": 193,
+    "weight": 0.5064432989690721,
+    "created_at": 1766670357.7937863,
+    "last_seen": 1766677659.9342299,
+    "updated_at": 1766677659.9342299
+  },
+  "gpt19": {
+    "success": 0,
+    "fail": 193,
+    "calls": 193,
+    "weight": 0.5064432989690721,
+    "created_at": 1766670357.8056304,
+    "last_seen": 1766677660.168626,
+    "updated_at": 1766677660.168626
+  },
+  "gpt20": {
+    "success": 0,
+    "fail": 186,
+    "calls": 186,
+    "weight": 0.5066844919786097,
+    "created_at": 1766670362.8039916,
+    "last_seen": 1766676651.0780454,
+    "updated_at": 1766676651.0780454
+  },
+  "Llama-3.2-1B-Instruct-Q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1766676995.3409908,
+    "last_seen": 1766676995.3409908,
+    "updated_at": 1766676995.3409908
+  },
+  "Llama-3.2-3B-Instruct-Q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1766676997.87848,
+    "last_seen": 1766676997.87848,
+    "updated_at": 1766676997.87848
+  },
+  "orca-mini-3b-gguf2-q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1766677000.184242,
+    "last_seen": 1766677000.184242,
+    "updated_at": 1766677000.184242
+  },
+  "Phi-3-mini-4k-instruct.Q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1766677002.6267512,
+    "last_seen": 1766677002.6267512,
+    "updated_at": 1766677002.6267512
+  },
+  "qwen2-1_5b-instruct-q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1766677004.427509,
+    "last_seen": 1766677004.427509,
+    "updated_at": 1766677004.427509
+  },
+  "llama_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1767241083.2880838,
+    "last_seen": 1767241083.2880838,
+    "updated_at": 1767241083.2880838
+  },
+  "deep_q": {
+    "success": 1628,
+    "fail": 4280,
+    "calls": 5908,
+    "weight": 1.188991369097986,
+    "created_at": 1767415248.6911085,
+    "last_seen": 1768746009.5640273,
+    "updated_at": 1768746009.5640273
+  },
+  "Llama-3.2-1B-Instruct-Q4_0.gguf": {
+    "success": 0,
+    "fail": 9,
+    "calls": 9,
+    "weight": 0.625,
+    "created_at": 1767415582.3967893,
+    "last_seen": 1767416110.5458827,
+    "updated_at": 1767416110.5458827
+  },
+  "llama:mistral-7b-instruct-v0.1.Q4_K_S.gguf:0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1768691968.4436343,
+    "last_seen": 1768691968.4436343,
+    "updated_at": 1768691968.4436343
+  },
+  "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1768746038.0807884,
+    "last_seen": 1768746038.0807884,
+    "updated_at": 1768746038.0807884
+  },
+  "Nous-Hermes-2-Mistral-7B-DPO.Q4_0": {
+    "success": 0,
+    "fail": 0,
+    "calls": 0,
+    "weight": 1.0,
+    "created_at": 1768746038.0807884,
+    "last_seen": 1768746038.0807884,
+    "updated_at": 1768746038.0807884
+  },
+  "<GPT4AllProxy DeepSeek-R1-Distill-Qwen-1.5B-Q4_0>": {
+    "success": 0,
+    "fail": 79,
+    "calls": 79,
+    "weight": 0.515625,
+    "created_at": 1768746050.9431365,
+    "last_seen": 1768747527.5945592,
+    "updated_at": 1768747527.5945592
+  },
+  "<GPT4AllProxy Llama-3.2-1B-Instruct-Q4_0>": {
+    "success": 0,
+    "fail": 3896,
+    "calls": 3896,
+    "weight": 0.5003207595586349,
+    "created_at": 1768746050.946235,
+    "last_seen": 1770606426.4815435,
+    "updated_at": 1770606426.4815435
+  },
+  "<GPT4AllProxy Llama-3.2-3B-Instruct-Q4_0>": {
+    "success": 0,
+    "fail": 3541,
+    "calls": 3541,
+    "weight": 0.5003529079616036,
+    "created_at": 1768746050.946235,
+    "last_seen": 1770606426.4835718,
+    "updated_at": 1770606426.4835718
+  },
+  "<GPT4AllProxy Nous-Hermes-2-Mistral-7B-DPO.Q4_0>": {
+    "success": 0,
+    "fail": 3027,
+    "calls": 3027,
+    "weight": 0.5004128137384413,
+    "created_at": 1768746050.9472435,
+    "last_seen": 1770606426.485572,
+    "updated_at": 1770606426.485572
+  },
+  "<GPT4AllProxy orca-mini-3b-gguf2-q4_0>": {
+    "success": 0,
+    "fail": 2973,
+    "calls": 2973,
+    "weight": 0.5004203093476799,
+    "created_at": 1768746050.948768,
+    "last_seen": 1770606426.485572,
+    "updated_at": 1770606426.485572
+  },
+  "<GPT4AllProxy Phi-3-mini-4k-instruct.Q4_0>": {
+    "success": 0,
+    "fail": 6668,
+    "calls": 6668,
+    "weight": 0.5001874343979608,
+    "created_at": 1768746050.950287,
+    "last_seen": 1770606426.485572,
+    "updated_at": 1770606426.485572
+  },
+  "<GPT4AllProxy qwen2-1_5b-instruct-q4_0>": {
+    "success": 0,
+    "fail": 6800,
+    "calls": 6800,
+    "weight": 0.5001837965005146,
+    "created_at": 1768746050.9518106,
+    "last_seen": 1770606426.790861,
+    "updated_at": 1770606426.790861
+  }
+}

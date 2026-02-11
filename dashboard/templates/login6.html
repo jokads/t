@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - JokaMazKiBu Trading Bot</title>
+
+    <!-- Fontes e ícones -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <!-- Estilo principal -->
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    <style>
+        /* Reset e base */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body.login-page {
+            font-family: 'Inter', sans-serif;
+            background: #0f111a;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        canvas#triangle-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Container centralizado */
+        .login-container {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            padding: 1rem;
+        }
+
+        /* Caixa de login */
+        .login-box {
+            background: rgba(20,22,35,0.95);
+            padding: 2rem 2.5rem;
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            animation: fadeIn 0.8s ease-in-out;
+            transition: transform 0.3s ease;
+        }
+
+        .login-box:hover { transform: translateY(-3px); }
+
+        /* Header */
+        .login-header img.login-logo { width: 80px; margin-bottom: 1rem; }
+        .login-header h1 { font-size: 2rem; margin-bottom: 0.3rem; letter-spacing: 2px; color: #ffb700; }
+        .login-subtitle { font-size: 0.9rem; color: #aaa; margin-bottom: 1.5rem; }
+
+        /* Formulário */
+        .login-form .form-group { margin-bottom: 1rem; text-align: left; }
+        .login-form label { display: block; margin-bottom: 0.3rem; font-weight: 500; }
+        .login-form input[type="text"],
+        .login-form input[type="password"] {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border-radius: 10px;
+            border: 1px solid #333;
+            background: #1a1c2b;
+            color: #fff;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        .login-form input:focus {
+            border-color: #ffb700;
+            outline: none;
+            box-shadow: 0 0 8px rgba(255,183,0,0.6);
+        }
+
+        /* Checkbox */
+        .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; user-select: none; }
+
+        /* Mensagem de erro */
+        .error-message { color: #ff5555; font-size: 0.9rem; margin: 0.5rem 0; display: none; }
+
+        /* Botão login */
+        .btn-login {
+            width: 100%;
+            padding: 0.9rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #ffb700, #ff9e00);
+            color: #111;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-login:hover { background: linear-gradient(90deg, #e6a200, #cc8f00); transform: translateY(-2px); }
+        .btn-login:disabled { background: #888; cursor: not-allowed; }
+
+        /* Footer */
+        .login-footer { margin-top: 1.5rem; font-size: 0.8rem; color: #777; text-align: center; }
+        .login-footer strong { color: #ffb700; }
+
+        /* Animação */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-20px);} to { opacity: 1; transform: translateY(0);} }
+
+        /* Responsividade */
+        @media (max-width: 480px) {
+            .login-box { padding: 1.5rem 1.8rem; }
+        }
+    </style>
+</head>
+<body class="login-page">
+
+    <!-- Canvas animado de fundo -->
+    <canvas id="triangle-canvas"></canvas>
+
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <img src="/static/img/logo.png" alt="Logo" class="login-logo">
+                <h1>JOKAMAZKIBU</h1>
+                <p class="login-subtitle">Trading Bot Ultra Advanced v6.0</p>
+            </div>
+
+            <form id="loginForm" class="login-form" novalidate>
+                <div class="form-group">
+                    <label for="username">
+                        <i class="fas fa-user"></i> Utilizador
+                    </label>
+                    <input type="text" id="username" name="username" placeholder="Digite seu utilizador" required autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">
+                        <i class="fas fa-lock"></i> Palavra-passe
+                    </label>
+                    <input type="password" id="password" name="password" placeholder="Digite sua palavra-passe" required autocomplete="current-password">
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="rememberMe" name="remember">
+                        <span>Lembrar-me</span>
+                    </label>
+                </div>
+
+                <div id="loginMessage" class="error-message"></div>
+
+                <button type="submit" class="btn-login">
+                    <i class="fas fa-sign-in-alt"></i> Entrar
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <p>Credenciais padrão: <strong>admin/admin123</strong> ou <strong>trader/trader123</strong></p>
+                <p>&copy; 2025 JokaMazKiBu. Todos os direitos reservados.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/login.js"></script>
+    <script src="/static/js/triangle-bg.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "metrics": {
+    "total_signals": 1,
+    "buy_signals": 1,
+    "sell_signals": 0,
+    "avg_confidence": 1.0,
+    "uptime_seconds": 0.008527040481567383
+  },
+  "recent_signals": [
+    {
+      "symbol": "EURUSD",
+      "decision": "BUY",
+      "confidence": 1.0,
+      "tp_pips": 50.0,
+      "sl_pips": 30.0,
+      "timestamp": 1769347702.7251172
+    }
+  ],
+  "timestamp": 1769347702.7256186
+}
