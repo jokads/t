@@ -8,30 +8,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class SignalPayload(BaseModel):
     """Payload for trading signal"""
     
-    account_id: str = Field(..., description="MT5 account ID")
-    strategy: str = Field(..., description="Strategy name that generated signal")
-    symbol: str = Field(..., pattern=r"^[A-Z]{6}$", description="Trading symbol (e.g., EURUSD)")
-    action: Literal["BUY", "SELL", "HOLD"] = Field(..., description="Trading action")
-    lot: float = Field(..., gt=0.0, le=100.0, description="Lot size")
-    stop_loss: Optional[float] = Field(None, description="Stop loss price")
-    take_profit: Optional[float] = Field(None, description="Take profit price")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Signal confidence score")
-    price: Optional[float] = Field(None, description="Current market price")
-    
-    @field_validator("symbol")
-    @classmethod
-    def validate_symbol(cls, v: str) -> str:
-        """Ensure symbol is uppercase"""
-        return v.upper()
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "account_id": "12345",
                 "strategy": "SuperTrend",
@@ -44,18 +28,30 @@ class SignalPayload(BaseModel):
                 "price": 1.0870
             }
         }
+    )
+    
+    account_id: str = Field(..., description="MT5 account ID")
+    strategy: str = Field(..., description="Strategy name that generated signal")
+    symbol: str = Field(..., pattern=r"^[A-Z]{6}$", description="Trading symbol (e.g., EURUSD)")
+    action: Literal["BUY", "SELL", "HOLD"] = Field(..., description="Trading action")
+    lot: float = Field(..., gt=0.0, le=100.0, description="Lot size")
+    stop_loss: Optional[float] = Field(None, description="Stop loss price")
+    take_profit: Optional[float] = Field(None, description="Take profit price")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Signal confidence score")
+    price: Optional[float] = Field(None, description="Current market price")
+    
+    @field_validator("symbol", mode="before")
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
+        """Ensure symbol is uppercase"""
+        return v.upper()
 
 
 class SignalCreate(BaseModel):
     """Request to create a trading signal (from EA to Python)"""
     
-    type: Literal["signal.create"] = "signal.create"
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    auth_token: str = Field(..., description="JWT authentication token")
-    payload: SignalPayload
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "signal.create",
                 "timestamp": "2026-02-11T20:30:00Z",
@@ -73,21 +69,19 @@ class SignalCreate(BaseModel):
                 }
             }
         }
+    )
+    
+    type: Literal["signal.create"] = "signal.create"
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    auth_token: str = Field(..., description="JWT authentication token")
+    payload: SignalPayload
 
 
 class OrderExecute(BaseModel):
     """Response with order execution details (from Python to EA)"""
     
-    type: Literal["order.execute"] = "order.execute"
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    success: bool = Field(..., description="Whether order was executed successfully")
-    order_id: Optional[str] = Field(None, description="MT5 order ticket ID")
-    payload: Optional[SignalPayload] = Field(None, description="Executed signal payload")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    latency_ms: Optional[float] = Field(None, description="Processing latency in milliseconds")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "order.execute",
                 "timestamp": "2026-02-11T20:30:01Z",
@@ -107,37 +101,40 @@ class OrderExecute(BaseModel):
                 "latency_ms": 125.5
             }
         }
+    )
+    
+    type: Literal["order.execute"] = "order.execute"
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    success: bool = Field(..., description="Whether order was executed successfully")
+    order_id: Optional[str] = Field(None, description="MT5 order ticket ID")
+    payload: Optional[SignalPayload] = Field(None, description="Executed signal payload")
+    error: Optional[str] = Field(None, description="Error message if failed")
+    latency_ms: Optional[float] = Field(None, description="Processing latency in milliseconds")
 
 
 class Heartbeat(BaseModel):
     """Heartbeat message to keep connection alive"""
     
-    type: Literal["heartbeat.ping", "heartbeat.pong"]
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    sender: Literal["ea", "python"] = Field(..., description="Who sent the heartbeat")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "heartbeat.ping",
                 "timestamp": "2026-02-11T20:30:00Z",
                 "sender": "ea"
             }
         }
+    )
+    
+    type: Literal["heartbeat.ping", "heartbeat.pong"]
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    sender: Literal["ea", "python"] = Field(..., description="Who sent the heartbeat")
 
 
 class ErrorMessage(BaseModel):
     """Error message for failed operations"""
     
-    type: Literal["error"] = "error"
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    error_code: str = Field(..., description="Error code (e.g., TIMEOUT, VALIDATION_ERROR)")
-    error_message: str = Field(..., description="Human-readable error message")
-    trace_id: Optional[str] = Field(None, description="Trace ID for debugging")
-    details: Optional[dict] = Field(None, description="Additional error details")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "error",
                 "timestamp": "2026-02-11T20:30:00Z",
@@ -147,18 +144,21 @@ class ErrorMessage(BaseModel):
                 "details": {"model": "mistral-7b", "timeout": 8.0}
             }
         }
+    )
+    
+    type: Literal["error"] = "error"
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    error_code: str = Field(..., description="Error code (e.g., TIMEOUT, VALIDATION_ERROR)")
+    error_message: str = Field(..., description="Human-readable error message")
+    trace_id: Optional[str] = Field(None, description="Trace ID for debugging")
+    details: Optional[dict] = Field(None, description="Additional error details")
 
 
 class AuthRequest(BaseModel):
     """Authentication request from EA"""
     
-    type: Literal["auth.request"] = "auth.request"
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    account_id: str = Field(..., description="MT5 account ID")
-    api_key: str = Field(..., description="API key for authentication")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "auth.request",
                 "timestamp": "2026-02-11T20:30:00Z",
@@ -166,20 +166,19 @@ class AuthRequest(BaseModel):
                 "api_key": "sk_live_abc123..."
             }
         }
+    )
+    
+    type: Literal["auth.request"] = "auth.request"
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    account_id: str = Field(..., description="MT5 account ID")
+    api_key: str = Field(..., description="API key for authentication")
 
 
 class AuthResponse(BaseModel):
     """Authentication response from Python"""
     
-    type: Literal["auth.response"] = "auth.response"
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    success: bool = Field(..., description="Whether authentication succeeded")
-    auth_token: Optional[str] = Field(None, description="JWT token if successful")
-    expires_in: Optional[int] = Field(None, description="Token expiration in seconds")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "auth.response",
                 "timestamp": "2026-02-11T20:30:00Z",
@@ -188,3 +187,11 @@ class AuthResponse(BaseModel):
                 "expires_in": 3600
             }
         }
+    )
+    
+    type: Literal["auth.response"] = "auth.response"
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    success: bool = Field(..., description="Whether authentication succeeded")
+    auth_token: Optional[str] = Field(None, description="JWT token if successful")
+    expires_in: Optional[int] = Field(None, description="Token expiration in seconds")
+    error: Optional[str] = Field(None, description="Error message if failed")
