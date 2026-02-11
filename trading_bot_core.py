@@ -1671,9 +1671,30 @@ class TradingBot:
         # combine: strategy -> AI override (if conf) -> DeepQ (fallback)
         decision = strategy_decision
         ai_conf = _safe_float(ai_res.get("confidence", ai_res.get("conf", 0.0)), 0.0)
-        ai_min_conf = float(getattr(self, "ai_override_min_confidence", 0.65))
-
-        if ai_decision_str in ("BUY", "SELL") and ai_conf >= ai_min_conf:
+        # ✅ HOTFIX: Reduzir threshold de 0.65 para 0.30
+        ai_min_conf = float(getattr(self, "ai_override_min_confidence", 0.30))
+        
+        # 🔍 HOTFIX: Log detalhado das decisões
+        self.logger.info(
+            f"[HOTFIX] {symbol} decisions: "
+            f"strategy={strategy_decision}, "
+            f"ai={ai_decision_str}(conf={ai_conf:.2f}), "
+            f"dq={dq_decision_str}"
+        )
+        
+        # 🔍 HOTFIX: Detectar se AI falhou
+        ai_failed = ai_res.get("ai_failed", False)
+        ai_very_low_conf = ai_conf < 0.20
+        
+        # Se AI falhou OU confidence muito baixa, usar estratégia
+        if ai_failed or ai_very_low_conf:
+            self.logger.warning(
+                f"{symbol}: AI falhou ou confidence muito baixa "
+                f"(conf={ai_conf:.2f}, failed={ai_failed}). "
+                f"Usando decisão da estratégia: {strategy_decision}"
+            )
+            decision = strategy_decision
+        elif ai_decision_str in ("BUY", "SELL") and ai_conf >= ai_min_conf:
             decision = ai_decision_str
             self.logger.info("%s: AI override ACTIVE -> %s (conf=%.2f)", symbol, decision, ai_conf)
         elif decision == "HOLD" and dq_decision_str in ("BUY", "SELL"):
@@ -1688,7 +1709,14 @@ class TradingBot:
             self.logger.debug("%s: min_interval_not_reached (last=%s %.1fs ago)", symbol, last_dec, now - last_ts)
             return {"ok": False, "result": "min_interval_not_reached"}
 
+        # 🔍 HOTFIX: Só rejeitar HOLD se estratégia também for HOLD
         if decision not in ("BUY", "SELL"):
+            # Se estratégia tinha sinal válido mas AI forçou HOLD, logar WARNING
+            if strategy_decision in ("BUY", "SELL"):
+                self.logger.warning(
+                    f"{symbol}: Estratégia tinha {strategy_decision} mas decisão final é HOLD. "
+                    f"AI conf={ai_conf:.2f}, failed={ai_res.get('ai_failed', False)}"
+                )
             self.logger.debug("%s: decision is HOLD -> skipping", symbol)
             return {"ok": False, "result": "hold"}
 
