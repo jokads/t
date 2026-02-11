@@ -3440,8 +3440,8 @@ class AIManager:
             ext_action = str(external_signal.get("action", "HOLD")).upper()
             ext_conf = float(external_signal.get("confidence", 0.0))
             
-            # ✅ Threshold reduzido: 0.25 (ao invés de 0.40)
-            if ext_action != "HOLD" and ext_conf >= 0.25:
+            # ✅ HOTFIX: Threshold reduzido: 0.15 (ao invés de 0.25)
+            if ext_action != "HOLD" and ext_conf >= 0.15:
                 log.info(f"🔥 PRIORIDADE 1: Usando sinal técnico direto | {ext_action} (conf={ext_conf:.2f})")
                 
                 entry_price = float(external_signal.get("price") or external_signal.get("entry_price", 0.0))
@@ -3574,13 +3574,16 @@ class AIManager:
                     mid = active.pop(fut, "unknown")
 
                     if isinstance(result, Exception):
+                        # 🔍 HOTFIX: Log detalhado da exceção
+                        log.warning(f"[HOTFIX] Model {mid} failed with exception: {type(result).__name__}: {str(result)[:100]}")
                         votes.append({
                             "decision": "HOLD",
-                            "confidence": 0.4,
+                            "confidence": 0.0,  # ✅ Mudado de 0.4 para 0.0 para indicar falha
                             "tp_pips": 1.0,
                             "sl_pips": 1.0,
                             "model": mid,
-                            "raw": str(result)
+                            "raw": str(result),
+                            "ai_failed": True  # ✅ Flag de falha
                         })
                         continue
 
@@ -3634,6 +3637,14 @@ class AIManager:
                     log.warning("Strategy %s failed: %s", name, e)
 
             # =============== AGGREGATION ===============
+            # 🔍 HOTFIX: Detectar se TODOS os modelos falharam
+            ai_failed_count = sum(1 for v in votes if v.get("ai_failed", False))
+            ai_total_count = len(votes)
+            ai_all_failed = (ai_failed_count == ai_total_count) and ai_total_count > 0
+            
+            if ai_all_failed:
+                log.error(f"[HOTFIX] TODOS os {ai_total_count} modelos AI falharam!")
+            
             # ✅ CORREÇÃO 1: Incluir HOLD na agregação
             agg = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
             tp_vals, sl_vals = [], []
@@ -3654,7 +3665,8 @@ class AIManager:
             # ✅ CORREÇÃO 3: Modo híbrido melhorado com threshold 0.3 e cálculo de pips
             ext_action = str(external_signal.get("action", "HOLD")).upper() if external_signal else "HOLD"
             
-            if max(agg.values()) <= 0.3 and external_signal and ext_action != "HOLD":
+            # 🔍 HOTFIX: Usar external_signal se AI falhou OU score baixo
+            if (max(agg.values()) <= 0.3 or ai_all_failed) and external_signal and ext_action != "HOLD":
                 ext_conf = float(external_signal.get("confidence", 0.0))
                 
                 if ext_conf >= 0.40:  # Confiança mínima do sinal técnico
@@ -3745,7 +3757,8 @@ class AIManager:
                 "tp_pips": float(tp_agg),
                 "sl_pips": float(sl_agg),
                 "votes": votes,
-                "elapsed": time.time() - start
+                "elapsed": time.time() - start,
+                "ai_failed": ai_all_failed if 'ai_all_failed' in locals() else False  # ✅ HOTFIX: Flag
             }
 
         except Exception as e:
