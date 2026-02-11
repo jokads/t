@@ -414,6 +414,6 @@ Para questões e suporte:
 
 ---
 
-**Desenvolvido com 💜 por JOKA Trading Systems**
+**Desenvolvido por JOKA Trading Systems**
 
-*"Thug Paradise 616 - Where Trading Meets AI"*
+*"- Where Trading Meets AI"*
