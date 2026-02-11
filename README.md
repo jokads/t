@@ -140,12 +140,6 @@ docker-compose down
 - Dashboard: http://localhost:5000
 - Frontend: http://localhost:5173
 
-## 🔑 Credenciais Padrão
-
-**⚠️ ALTERE EM PRODUÇÃO!**
-
-- **Utilizador**: `joka`
-- **Password**: `ThugParadise616#`
 
 ## 📁 Estrutura do Projeto
 
