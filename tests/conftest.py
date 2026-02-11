@@ -1,6 +1,7 @@
 """
 Pytest configuration and fixtures
 """
+
 import asyncio
 import pytest
 
@@ -24,7 +25,7 @@ def mock_config():
         PerformanceConfig,
         BotConfig,
     )
-    
+
     return BotConfig(
         ai=AIConfig(
             model_paths=["/tmp/models"],

@@ -1,6 +1,7 @@
 """
 Utils - Configuration, logging, rate limiting, and helpers
 """
+
 from bot_mt5.utils.config import (
     AIConfig,
     MT5Config,
