@@ -3440,8 +3440,8 @@ class AIManager:
             ext_action = str(external_signal.get("action", "HOLD")).upper()
             ext_conf = float(external_signal.get("confidence", 0.0))
             
-            # ✅ Threshold reduzido: 0.25 (ao invés de 0.40)
-            if ext_action != "HOLD" and ext_conf >= 0.25:
+            # 🔥 HARDCORE FIX: Threshold reduzido: 0.15 (ao invés de 0.40)
+            if ext_action != "HOLD" and ext_conf >= 0.15:
                 log.info(f"🔥 PRIORIDADE 1: Usando sinal técnico direto | {ext_action} (conf={ext_conf:.2f})")
                 
                 entry_price = float(external_signal.get("price") or external_signal.get("entry_price", 0.0))
@@ -3469,7 +3469,8 @@ class AIManager:
                     "sl_pips": sl_pips,
                     "votes": [],
                     "elapsed": time.time() - start,
-                    "reason": "priority_1_external_signal"
+                    "reason": "priority_1_external_signal",
+                    "ai_failed": False  # 🔥 HARDCORE FIX: flag para trading_bot_core
                 }
 
         try:
@@ -3520,7 +3521,8 @@ class AIManager:
                         "sl_pips": sl_pips,
                         "votes": [],
                         "elapsed": time.time() - start,
-                        "reason": "no_models_using_external"
+                        "reason": "no_models_using_external",
+                        "ai_failed": True  # 🔥 HARDCORE FIX
                     }
                 return {
                     "decision": "HOLD",
@@ -3529,7 +3531,8 @@ class AIManager:
                     "sl_pips": 75.0,
                     "votes": [],
                     "elapsed": time.time() - start,
-                    "reason": "no_models_no_external"
+                    "reason": "no_models_no_external",
+                    "ai_failed": True  # 🔥 HARDCORE FIX
                 }
 
             max_concurrent = max(
@@ -3723,6 +3726,33 @@ class AIManager:
             decision = max(agg, key=agg.get)
             total = sum(agg.values())
             confidence = agg[decision] / max(total, 1e-6)
+            
+            # 🔥 HARDCORE FIX: Se AI retorna HOLD mas external_signal existe
+            if decision == "HOLD" and external_signal:
+                ext_action = str(external_signal.get("action", "HOLD")).upper()
+                ext_conf = float(external_signal.get("confidence", 0.0))
+                
+                if ext_action != "HOLD" and ext_conf >= 0.15:
+                    log.warning(f"⚠️ AI={decision}, Estratégia={ext_action}(conf={ext_conf:.2f}). USANDO ESTRATÉGIA.")
+                    
+                    entry_price = float(external_signal.get("price") or external_signal.get("entry_price", 0.0))
+                    tp_price = float(external_signal.get("take_profit", 0.0))
+                    sl_price = float(external_signal.get("stop_loss", 0.0))
+                    
+                    multiplier = 1000 if "JPY" in (symbol or "") else 10000
+                    tp_pips = abs(entry_price - tp_price) * multiplier if tp_price > 0 else 150.0
+                    sl_pips = abs(entry_price - sl_price) * multiplier if sl_price > 0 else 75.0
+                    
+                    return {
+                        "decision": ext_action,
+                        "confidence": ext_conf,
+                        "tp_pips": max(1.0, tp_pips),
+                        "sl_pips": max(1.0, sl_pips),
+                        "votes": votes,
+                        "elapsed": time.time() - start,
+                        "reason": "ai_hold_fallback_to_technical",
+                        "ai_failed": True
+                    }
 
             def wavg(vals):
                 sw = sum(w for _, w in vals)
@@ -3745,35 +3775,37 @@ class AIManager:
                 "tp_pips": float(tp_agg),
                 "sl_pips": float(sl_agg),
                 "votes": votes,
-                "elapsed": time.time() - start
+                "elapsed": time.time() - start,
+                "ai_failed": False  # 🔥 HARDCORE FIX: AI funcionou
             }
 
         except Exception as e:
             log.error("vote_trade HARD FAIL: %s", e, exc_info=True)
             
-            # ✅ CORREÇÃO 6: Fallback em exceção usa external_signal
+            # 🔥 HARDCORE FIX: Fallback em exceção usa external_signal
             if external_signal and external_signal.get("action") != "HOLD":
-                entry_price = float(external_signal.get("price") or external_signal.get("entry_price", 0.0))
-                tp_price = float(external_signal.get("take_profit", 0.0))
-                sl_price = float(external_signal.get("stop_loss", 0.0))
+                ext_conf = float(external_signal.get("confidence", 0.50))
                 
-                if "JPY" in (symbol or ""):
-                    multiplier = 1000
-                else:
-                    multiplier = 10000
-                
-                tp_pips = abs(entry_price - tp_price) * multiplier if tp_price > 0 else 150.0
-                sl_pips = abs(entry_price - sl_price) * multiplier if sl_price > 0 else 75.0
-                
-                return {
-                    "decision": external_signal.get("action", "HOLD"),
-                    "confidence": float(external_signal.get("confidence", 0.5)),
-                    "tp_pips": tp_pips,
-                    "sl_pips": sl_pips,
-                    "votes": [],
-                    "elapsed": time.time() - start,
-                    "reason": "hard_fail_using_external"
-                }
+                # 🔥 HARDCORE FIX: Threshold 0.15
+                if ext_conf >= 0.15:
+                    entry_price = float(external_signal.get("price") or external_signal.get("entry_price", 0.0))
+                    tp_price = float(external_signal.get("take_profit", 0.0))
+                    sl_price = float(external_signal.get("stop_loss", 0.0))
+                    
+                    multiplier = 1000 if "JPY" in (symbol or "") else 10000
+                    tp_pips = abs(entry_price - tp_price) * multiplier if tp_price > 0 else 150.0
+                    sl_pips = abs(entry_price - sl_price) * multiplier if sl_price > 0 else 75.0
+                    
+                    return {
+                        "decision": external_signal.get("action", "HOLD"),
+                        "confidence": ext_conf,
+                        "tp_pips": max(1.0, tp_pips),
+                        "sl_pips": max(1.0, sl_pips),
+                        "votes": [],
+                        "elapsed": time.time() - start,
+                        "reason": "exception_fallback_to_technical",
+                        "ai_failed": True  # 🔥 HARDCORE FIX
+                    }
             
             return {
                 "decision": "HOLD",
@@ -3782,7 +3814,8 @@ class AIManager:
                 "sl_pips": 75.0,
                 "votes": [],
                 "elapsed": time.time() - start,
-                "reason": "hard_fail"
+                "reason": "hard_fail",
+                "ai_failed": True  # 🔥 HARDCORE FIX
             }
 
 
