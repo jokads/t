@@ -1731,6 +1731,7 @@ class MT5Communication:
                         ping_interval=globals().get("WS_PING_INTERVAL", None),
                         ping_timeout=globals().get("WS_PING_TIMEOUT", None),
                         max_size=globals().get("WS_MAX_SIZE", None),
+                        open_timeout=10,  # HARDCORE FIX: timeout handshake 10s
                         process_request=process_request,
                     )
                     self._ws_server = server
@@ -1751,9 +1752,10 @@ class MT5Communication:
                     except Exception as e:
                         log.debug("_ws_main: server close error: %s", e)
 
-                except (_ws_exceptions.InvalidMessage, _ws_exceptions.InvalidUpgrade, ConnectionResetError, EOFError, ValueError) as e:
-                    # Erros esperáveis quando um cliente HTTP normal acerta no porto WS.
-                    log.warning("_ws_main handshake/connection error (suppressed): %s", e)
+                except (_ws_exceptions.InvalidMessage, _ws_exceptions.InvalidUpgrade, ConnectionResetError, EOFError, ValueError, AssertionError) as e:
+                    # HARDCORE FIX: Erros esperáveis quando um cliente HTTP normal acerta no porto WS.
+                    # Suprimir completamente (não logar WARNING)
+                    log.debug("_ws_main handshake error (suppressed): %s", str(e)[:80])
                     # garante sinalização para não bloquear quem espera o started_evt
                     if not self._ws_started_evt.is_set():
                         try:
@@ -2266,17 +2268,20 @@ class MT5Communication:
                 # unknown action
                 await websocket.send(json.dumps({"status": "error", "detail": "unknown action"}))
 
-        except websockets.ConnectionClosed:
-            log.info("[WS] Client disconnected %s", client_id)
+        except websockets.ConnectionClosed as e:
+            # HARDCORE FIX: Graceful disconnect
+            log.debug("[WS] Client disconnected %s (code=%s)", client_id, getattr(e, 'code', 'N/A'))
         except Exception as e:
-            log.exception("[WS] Unexpected exception for %s: %s", client_id, e)
+            log.error("[WS] Unexpected exception for %s: %s", client_id, str(e)[:200])
         finally:
             # cleanup
             try:
                 self._client_last_ts.pop(client_ip, None)
             except Exception:
                 pass
-            log.info("[WS] Connection closed %s", client_id)
+            with self._metrics_lock:
+                self.metrics["ws_connections"] = max(0, self.metrics.get("ws_connections", 1) - 1)
+            log.debug("[WS] Connection closed %s", client_id)
 
 # quick manual run
 if __name__ == "__main__":
