@@ -2783,7 +2783,7 @@ class TradingBot:
 
     def _process_symbol(self, symbol: str):
         """
-        Processa um único símbolo: fetch de dados, AI fallback e execução de trade.
+        🔥 REAL FIX: Processa um único símbolo: fetch de dados, extrai sinal do buffer, AI fallback e execução de trade.
         Rodável em ThreadPoolExecutor.
         """
         try:
@@ -2798,16 +2798,37 @@ class TradingBot:
                 logger.debug(f"{symbol}: no market data")
                 return
 
+            # 🔥 REAL FIX: Extrair sinal do buffer para este símbolo
+            external_signal = None
+            try:
+                with self._signal_lock:
+                    buf = getattr(self, "_signal_buffer", [])
+                    # Procurar último sinal para este símbolo
+                    for item in reversed(buf):
+                        if item.get("symbol") == symbol:
+                            sig = item.get("signal")
+                            if sig and isinstance(sig, dict):
+                                external_signal = sig
+                                logger.debug(f"{symbol}: Found signal in buffer: {external_signal.get('action')} conf={external_signal.get('confidence')}")
+                                break
+            except Exception as e:
+                logger.debug(f"{symbol}: Failed to extract signal from buffer: {e}")
+
             # ---------- AI decision ----------
             ai_res = None
             if self.ai:
                 try:
-                    ai_res = self.ask_model_with_retries(symbol, data, retries=2)
+                    ai_res = self.ask_model_with_retries(symbol, data, retries=2, external_signal=external_signal)
                     logger.debug(f"{symbol}: AI decision={ai_res.get('decision')} conf={ai_res.get('confidence'):.2f} "
                                 f"tp={ai_res.get('tp_pips')} sl={ai_res.get('sl_pips')}")
                 except Exception as e:
                     logger.warning(f"{symbol}: AI call failed: {e}")
                     return
+
+            # 🔥 REAL FIX: Adicionar strategy_decision ao ai_res
+            if ai_res and external_signal:
+                ai_res["strategy_decision"] = external_signal.get("action") or external_signal.get("decision") or "HOLD"
+                logger.debug(f"{symbol}: Added strategy_decision={ai_res['strategy_decision']} to ai_res")
 
             # ---------- Executar trade ----------
             if ai_res:
