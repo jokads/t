@@ -2319,13 +2319,26 @@ class TradingBot:
                     continue
 
                 try:
+                    # 🔥 REAL FIX: Logging detalhado
+                    self.logger.debug(f"{symbol}: Calling {strat_name}.{method_name}()")
+                    
                     # tenta (data, symbol) → fallback para (data)
-                    raw = _execute_with_timeout(fn, data, symbol)
-                    if raw is None:
+                    try:
+                        raw = _execute_with_timeout(fn, data, symbol)
+                    except TypeError as e:
+                        self.logger.debug(f"{symbol}: {strat_name}.{method_name}(data, symbol) failed: {e}, trying (data) only")
                         raw = _execute_with_timeout(fn, data)
+
+                    # 🔥 REAL FIX: Logar resultado bruto
+                    if raw is None:
+                        self.logger.debug(f"{symbol}: {strat_name}.{method_name}() returned None")
+                        break
+                    else:
+                        self.logger.debug(f"{symbol}: {strat_name}.{method_name}() returned: {type(raw).__name__}")
 
                     normalized = _normalize(symbol, raw)
                     if not normalized:
+                        self.logger.debug(f"{symbol}: {strat_name}.{method_name}() normalization failed")
                         break
 
                     if isinstance(normalized, list):
