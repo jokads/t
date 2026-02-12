@@ -5412,13 +5412,26 @@ class AIManager:
         except Exception:
             pass
 
+        # 🔥 REAL FIX: Detectar quando TODOS os modelos retornam HOLD 0.0
+        all_models_failed = all(
+            v.get("confidence", 0.0) == 0.0 and v.get("decision") == "HOLD"
+            for v in votes
+        )
+        
+        if all_models_failed and len(votes) > 0:
+            log.warning(f"🚨 TODOS os {len(votes)} modelos AI retornaram HOLD 0.0 — marcando ai_failed=True")
+            ai_failed_flag = True
+        else:
+            ai_failed_flag = False
+
         out = {
             "decision": final_dec,
             "confidence": round(conf_final, 4),
             "tp_pips": round(float(tp_final), 4),
             "sl_pips": round(float(sl_final), 4),
             "votes": votes,
-            "elapsed": time.time() - t0
+            "elapsed": time.time() - t0,
+            "ai_failed": ai_failed_flag  # 🔥 REAL FIX: flag para trading_bot_core
         }
 
         if symbol:
