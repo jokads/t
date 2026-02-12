@@ -1697,10 +1697,11 @@ class MT5Communication:
 
             async def process_request(path, request_headers):
                 """
-                Graceful handler for non-WebSocket hits.
+                🔥 REAL FIX: Graceful handler for non-WebSocket hits.
                 Return None to continue WebSocket handshake.
-                Otherwise return (status, headers, body).
+                Otherwise return (http.HTTPStatus, headers_dict, body).
                 """
+                import http
                 try:
                     upgrade = request_headers.get("Upgrade", "")
                     connection_hdr = request_headers.get("Connection", "")
@@ -1708,17 +1709,16 @@ class MT5Communication:
                     if isinstance(upgrade, str) and "websocket" in upgrade.lower() and isinstance(connection_hdr, str) and "upgrade" in connection_hdr.lower():
                         return None
 
-                    # If the client is doing a regular HTTP request (keep-alive etc),
-                    # respond with a small informative body so it doesn't cause a noisy stacktrace.
-                    body = b"MT5 WebSocket endpoint. Use WebSocket handshake or POST to HTTP fallback endpoint.\n"
-                    headers = [
-                        ("Content-Type", "text/plain; charset=utf-8"),
-                        ("Content-Length", str(len(body)))
-                    ]
-                    return 200, headers, body
+                    # 🔥 REAL FIX: Return correct format (http.HTTPStatus, dict, bytes)
+                    body = b"MT5 WebSocket endpoint\n"
+                    headers = {
+                        "Content-Type": "text/plain; charset=utf-8",
+                        "Content-Length": str(len(body))
+                    }
+                    return http.HTTPStatus.OK, headers, body
                 except Exception:
-                    # In case of any unexpected header shapes, avoid raising and return a sane fallback.
-                    return 200, [("Content-Type", "text/plain")], b"OK"
+                    # 🔥 REAL FIX: Return correct format
+                    return http.HTTPStatus.OK, {"Content-Type": "text/plain"}, b"OK\n"
 
 
             async def _ws_main():
