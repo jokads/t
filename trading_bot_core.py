@@ -1671,9 +1671,14 @@ class TradingBot:
         # combine: strategy -> AI override (if conf) -> DeepQ (fallback)
         decision = strategy_decision
         ai_conf = _safe_float(ai_res.get("confidence", ai_res.get("conf", 0.0)), 0.0)
-        ai_min_conf = float(getattr(self, "ai_override_min_confidence", 0.65))
+        ai_min_conf = float(getattr(self, "ai_override_min_confidence", 0.30))  # 🔥 HARDCORE FIX: 0.65 → 0.30
+        ai_failed = bool(ai_res.get("ai_failed", False))  # 🔥 HARDCORE FIX: detectar AI falhou
 
-        if ai_decision_str in ("BUY", "SELL") and ai_conf >= ai_min_conf:
+        # 🔥 HARDCORE FIX: Se AI falhou, priorizar estratégia
+        if ai_failed:
+            self.logger.warning("%s: AI falhou (ai_failed=True), usando estratégia: %s", symbol, strategy_decision)
+            decision = strategy_decision
+        elif ai_decision_str in ("BUY", "SELL") and ai_conf >= ai_min_conf:
             decision = ai_decision_str
             self.logger.info("%s: AI override ACTIVE -> %s (conf=%.2f)", symbol, decision, ai_conf)
         elif decision == "HOLD" and dq_decision_str in ("BUY", "SELL"):
@@ -1689,8 +1694,12 @@ class TradingBot:
             return {"ok": False, "result": "min_interval_not_reached"}
 
         if decision not in ("BUY", "SELL"):
-            self.logger.debug("%s: decision is HOLD -> skipping", symbol)
-            return {"ok": False, "result": "hold"}
+            # 🔥 HARDCORE FIX: Logging detalhado
+            self.logger.info(
+                "%s: HOLD decision | strategy=%s ai=%s(conf=%.2f,failed=%s) dq=%s",
+                symbol, strategy_decision, ai_decision_str, ai_conf, ai_failed, dq_decision_str
+            )
+            return {"ok": False, "result": "hold", "reason": "all_decisions_hold"}
 
         # ---------- SL/TP extraction (mais robusto) ----------
         sl_pips = _safe_float(ai_res.get("sl_pips") or ai_res.get("sl") or ai_res.get("stop_loss"), default_sl_pips)
@@ -2134,7 +2143,13 @@ class TradingBot:
             buf_len = len(getattr(self, "_signal_buffer", []))
         except Exception:
             buf_len = -1
-        self.logger.debug("run_strategies_cycle concluído — %d sinais enfileirados neste ciclo | buffer_total=%s", processed_count, buf_len)
+        
+        # 🔥 HARDCORE FIX: Logar quais estratégias foram executadas
+        executed_strategies = [getattr(s, "__name__", s.__class__.__name__) for s in (self.strategies or [])]
+        self.logger.info(
+            "run_strategies_cycle concluído — %d sinais enfileirados | buffer_total=%s | estratégias_executadas=%s",
+            processed_count, buf_len, executed_strategies
+        )
 
         return processed_count
 
@@ -2165,12 +2180,25 @@ class TradingBot:
         # -------------------------------
         # BLOQUEIO FORTE DE BACKTEST / ENGINES
         # -------------------------------
-        if (
+        # 🔥 HARDCORE FIX: Whitelist de estratégias conhecidas
+        KNOWN_LIVE_STRATEGIES = {
+            "supertrendstrategy", "emacrossoverstrategy", "rsistrategy",
+            "bollingerstrategy", "ictstrategy", "adaptivemlstrategy",
+            "buylowsellhighstrategy", "deepqlearningstrategy"
+        }
+        
+        strat_name_lower = strat_name.lower()
+        
+        # Permitir estratégias conhecidas
+        if any(known in strat_name_lower for known in KNOWN_LIVE_STRATEGIES):
+            self.logger.debug("✅ Executing known strategy: %s", strat_name)
+            # Continue execution
+        elif (
             hasattr(strat, "strategies")
             or hasattr(strat, "run_backtest")
-            or strat_name.lower().startswith(("backtest", "engine"))
+            or strat_name_lower.startswith(("backtest", "engine"))
         ):
-            self.logger.debug("Skipping non-live strategy: %s", strat_name)
+            self.logger.debug("⏭️ Skipping non-live strategy: %s", strat_name)
             return results
 
         # -------------------------------
