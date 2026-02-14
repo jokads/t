@@ -1,0 +1,23 @@
+# Core dependencies for refactored bot_mt5
+pydantic>=2.0.0,<3.0.0
+python-dotenv>=1.0.0
+
+# Async and performance
+uvloop>=0.19.0; sys_platform != 'win32'
+orjson>=3.9.0
+
+# AI models (install manually if needed, not in Docker by default)
+# llama-cpp-python>=0.2.0
+# gpt4all>=2.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Code quality (dev)
+black>=24.0.0
+flake8>=7.0.0
+mypy>=1.8.0
+
+# Monitoring (optional)
+# sentry-sdk>=1.40.0

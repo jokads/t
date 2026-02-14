@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # Main trading bot backend (refactored)
+  bot_mt5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bot_mt5_backend
+    restart: unless-stopped
+    ports:
+      - "8765:8765"  # MT5 socket server
+    volumes:
+      - ./models:/app/models:ro  # Mount models directory (read-only)
+      - ./logs:/app/logs  # Mount logs directory
+      - ./bot_mt5:/app/bot_mt5  # Mount source for development
+    environment:
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      - AI_POOL_SIZE=2
+      - AI_TIMEOUT_QUICK=8.0
+      - AI_TIMEOUT_DEEP=30.0
+      - MT5_HOST=0.0.0.0
+      - MT5_PORT=8765
+      - RATE_LIMIT_ENABLED=true
+      - RATE_LIMIT_OPM=60
+      - USE_UVLOOP=true
+    networks:
+      - bot_network
+    depends_on:
+      - redis
+
+  # Redis for event pub/sub and caching
+  redis:
+    image: redis:7-alpine
+    container_name: bot_mt5_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bot_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  bot_network:
+    driver: bridge
+
+volumes:
+  redis_data:
