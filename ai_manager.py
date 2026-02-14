@@ -5308,7 +5308,112 @@ class AIManager:
         return dec, conf, tp, sl
 
 
-    def vote_trade(self, market_df: Union[pd.DataFrame, dict, str], symbol: Optional[str] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
+def _ema_crossover_fallback(self, market_df, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Fallback rule-based strategy: EMA crossover (9/21)
+    Usado quando TODOS os modelos AI retornam HOLD 0.0
+    Returns:
+        dict com keys: action, confidence, tp, sl
+        ou None se não houver sinal
+    """
+    import pandas as pd
+    import numpy as np
+    try:
+        if isinstance(market_df, dict):
+            df = pd.DataFrame([market_df])
+        elif isinstance(market_df, str):
+            return None  # Can't process string
+        else:
+            df = market_df
+        if df is None or len(df) < 21:
+            return None
+        close = df['close'].values if 'close' in df.columns else df['Close'].values
+        ema_fast = pd.Series(close).ewm(span=9, adjust=False).mean()
+        ema_slow = pd.Series(close).ewm(span=21, adjust=False).mean()
+        fast_curr = float(ema_fast.iloc[-1])
+        slow_curr = float(ema_slow.iloc[-1])
+        fast_prev = float(ema_fast.iloc[-2])
+        slow_prev = float(ema_slow.iloc[-2])
+        bullish_cross = (fast_prev <= slow_prev) and (fast_curr > slow_curr)
+        bearish_cross = (fast_prev >= slow_prev) and (fast_curr < slow_curr)
+        if bullish_cross:
+            high = df['high'].values if 'high' in df.columns else df['High'].values
+            low = df['low'].values if 'low' in df.columns else df['Low'].values
+            tr = np.maximum(high[1:] - low[1:], 
+                           np.maximum(np.abs(high[1:] - close[:-1]), 
+                                     np.abs(low[1:] - close[:-1])))
+            atr = float(np.mean(tr[-14:])) if len(tr) >= 14 else float(np.mean(tr))
+            price = float(close[-1])
+            point = 0.0001 if price < 100 else 0.01  # Forex vs indices
+            atr_pips = atr / point
+            return {
+                "action": "BUY",
+                "confidence": 0.65,  # Medium confidence for rule-based
+                "tp": max(100.0, atr_pips * 2.0),
+                "sl": max(50.0, atr_pips * 1.5),
+                "reason": "EMA_9_21_bullish_crossover"
+            }
+        elif bearish_cross:
+            high = df['high'].values if 'high' in df.columns else df['High'].values
+            low = df['low'].values if 'low' in df.columns else df['Low'].values
+            tr = np.maximum(high[1:] - low[1:], 
+                           np.maximum(np.abs(high[1:] - close[:-1]), 
+                                     np.abs(low[1:] - close[:-1])))
+            atr = float(np.mean(tr[-14:])) if len(tr) >= 14 else float(np.mean(tr))
+            price = float(close[-1])
+            point = 0.0001 if price < 100 else 0.01
+            atr_pips = atr / point
+            return {
+                "action": "SELL",
+                "confidence": 0.65,
+                "tp": max(100.0, atr_pips * 2.0),
+                "sl": max(50.0, atr_pips * 1.5),
+                "reason": "EMA_9_21_bearish_crossover"
+            }
+        else:
+            distance = abs(fast_curr - slow_curr) / slow_curr
+            if distance > 0.005:  # 0.5% separation
+                if fast_curr > slow_curr:
+                    high = df['high'].values if 'high' in df.columns else df['High'].values
+                    low = df['low'].values if 'low' in df.columns else df['Low'].values
+                    tr = np.maximum(high[1:] - low[1:], 
+                                   np.maximum(np.abs(high[1:] - close[:-1]), 
+                                             np.abs(low[1:] - close[:-1])))
+                    atr = float(np.mean(tr[-14:])) if len(tr) >= 14 else float(np.mean(tr))
+                    price = float(close[-1])
+                    point = 0.0001 if price < 100 else 0.01
+                    atr_pips = atr / point
+                    return {
+                        "action": "BUY",
+                        "confidence": 0.55,  # Lower confidence (no crossover)
+                        "tp": max(100.0, atr_pips * 2.0),
+                        "sl": max(50.0, atr_pips * 1.5),
+                        "reason": "EMA_9_21_strong_uptrend"
+                    }
+                else:
+                    high = df['high'].values if 'high' in df.columns else df['High'].values
+                    low = df['low'].values if 'low' in df.columns else df['Low'].values
+                    tr = np.maximum(high[1:] - low[1:], 
+                                   np.maximum(np.abs(high[1:] - close[:-1]), 
+                                             np.abs(low[1:] - close[:-1])))
+                    atr = float(np.mean(tr[-14:])) if len(tr) >= 14 else float(np.mean(tr))
+                    price = float(close[-1])
+                    point = 0.0001 if price < 100 else 0.01
+                    atr_pips = atr / point
+                    return {
+                        "action": "SELL",
+                        "confidence": 0.55,
+                        "tp": max(100.0, atr_pips * 2.0),
+                        "sl": max(50.0, atr_pips * 1.5),
+                        "reason": "EMA_9_21_strong_downtrend"
+                    }
+            return None
+    except Exception as e:
+        log = getattr(self, "logger", logging.getLogger(__name__))
+        log.debug(f"EMA fallback exception: {e}")
+        return None
+
+        def vote_trade(self, market_df: Union[pd.DataFrame, dict, str], symbol: Optional[str] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
         t0 = time.time()
         timeout_total = float(timeout or getattr(self, "max_total_timeout", 6.0))
         deadline = t0 + timeout_total
@@ -5412,14 +5517,33 @@ class AIManager:
         except Exception:
             pass
 
-        # 🔥 REAL FIX: Detectar quando TODOS os modelos retornam HOLD 0.0
+        # 🔥 ULTIMATE FIX: Detectar quando TODOS os modelos retornam HOLD 0.0 e usar fallback rule-based
         all_models_failed = all(
             v.get("confidence", 0.0) == 0.0 and v.get("decision") == "HOLD"
             for v in votes
         )
         
         if all_models_failed and len(votes) > 0:
-            log.warning(f"🚨 TODOS os {len(votes)} modelos AI retornaram HOLD 0.0 — marcando ai_failed=True")
+            log.warning(f"🚨 TODOS os {len(votes)} modelos AI retornaram HOLD 0.0 — usando fallback EMA crossover")
+            
+            # 🔥 ULTIMATE FIX: Fallback rule-based (EMA crossover)
+            try:
+                fallback_decision = self._ema_crossover_fallback(market_df, symbol)
+                if fallback_decision and fallback_decision.get("action") != "HOLD":
+                    log.info(f"{symbol or 'UNKNOWN'}: Fallback EMA retornou {fallback_decision['action']} conf={fallback_decision['confidence']}")
+                    return {
+                        "decision": fallback_decision["action"],
+                        "confidence": fallback_decision["confidence"],
+                        "tp_pips": fallback_decision.get("tp", 150.0),
+                        "sl_pips": fallback_decision.get("sl", 75.0),
+                        "votes": votes,
+                        "elapsed": time.time() - t0,
+                        "ai_failed": True,
+                        "fallback": "EMA_crossover"
+                    }
+            except Exception as e:
+                log.debug(f"Fallback EMA failed: {e}")
+            
             ai_failed_flag = True
         else:
             ai_failed_flag = False
