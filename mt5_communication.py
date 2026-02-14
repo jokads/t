@@ -1697,28 +1697,32 @@ class MT5Communication:
 
             async def process_request(path, request_headers):
                 """
-                🔥 REAL FIX: Graceful handler for non-WebSocket hits.
-                Return None to continue WebSocket handshake.
-                Otherwise return (http.HTTPStatus, headers_dict, body).
+                🔥 ULTIMATE FIX: Return Response object (not tuple) for websockets library.
+                Return None to accept WebSocket handshake.
+                Return Response object to reject with HTTP response.
                 """
-                import http
                 try:
+                    from websockets.http import Response
+                    import http
+                    
                     upgrade = request_headers.get("Upgrade", "")
                     connection_hdr = request_headers.get("Connection", "")
-                    # consider it a WS handshake only when both headers indicate an upgrade
+                    
+                    # Accept WebSocket handshake
                     if isinstance(upgrade, str) and "websocket" in upgrade.lower() and isinstance(connection_hdr, str) and "upgrade" in connection_hdr.lower():
                         return None
 
-                    # 🔥 REAL FIX: Return correct format (http.HTTPStatus, dict, bytes)
+                    # 🔥 ULTIMATE FIX: Return Response object (NOT tuple)
                     body = b"MT5 WebSocket endpoint\n"
                     headers = {
                         "Content-Type": "text/plain; charset=utf-8",
                         "Content-Length": str(len(body))
                     }
-                    return http.HTTPStatus.OK, headers, body
-                except Exception:
-                    # 🔥 REAL FIX: Return correct format
-                    return http.HTTPStatus.OK, {"Content-Type": "text/plain"}, b"OK\n"
+                    return Response(http.HTTPStatus.OK.value, http.HTTPStatus.OK.phrase, headers, body)
+                except Exception as e:
+                    # Fallback: accept to avoid crashing
+                    log.debug(f"process_request exception: {e}")
+                    return None
 
 
             async def _ws_main():
